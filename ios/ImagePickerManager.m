@@ -176,9 +176,11 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
           }
         }
     }
-    
+
+    NSInteger  fileSize = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil].fileSize;
     NSMutableDictionary *asset = [[NSMutableDictionary alloc] init];
     asset[@"duration"] = [NSNumber numberWithDouble:CMTimeGetSeconds([AVAsset assetWithURL:videoDestinationURL].duration)];
+    asset[@"fileSize"] = [NSNumber numberWithDouble:fileSize];
     asset[@"uri"] = videoDestinationURL.absoluteString;
     asset[@"type"] = [ImagePickerUtils getFileTypeFromUrl:videoDestinationURL];
     
