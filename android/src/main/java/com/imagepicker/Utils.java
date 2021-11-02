@@ -417,6 +417,7 @@ public class Utils {
 
         WritableMap map = Arguments.createMap();
         map.putString("sourceURL", sourceUri.toString());
+        map.putDouble("sourceFileSize", getFileSize(sourceUri, context));
         map.putString("uri", uri.toString());
         map.putDouble("fileSize", getFileSize(uri, context));
         map.putString("fileName", fileName);
@@ -435,6 +436,7 @@ public class Utils {
         String fileName = getFileName(context, sourceUri);
         WritableMap map = Arguments.createMap();
         map.putString("sourceURL", sourceUri.toString());
+        map.putDouble("sourceFileSize", getFileSize(sourceUri, context));
         map.putString("uri", uri.toString());
         map.putDouble("fileSize", getFileSize(uri, context));
         map.putInt("duration", getDuration(uri, context));

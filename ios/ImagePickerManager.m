@@ -98,8 +98,10 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
 
 #pragma mark - Helpers
 
--(NSMutableDictionary *)mapImageToAsset:(UIImage *)image data:(NSData *)data {
+-(NSMutableDictionary *)mapImageToAsset:(UIImage *)image data:(NSData *)data originFileName:(NSString *)originFileName {
     NSString *fileType = [ImagePickerUtils getFileType:data];
+    
+    NSData *originData = [NSData dataWithData:data];
     
     if ((target == camera) && [self.options[@"saveToPhotos"] boolValue]) {
         UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil);
@@ -113,16 +115,20 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
 
     if ([fileType isEqualToString:@"jpg"]) {
         data = UIImageJPEGRepresentation(image, [self.options[@"quality"] floatValue]);
+        originData = UIImageJPEGRepresentation(image, 1.0);
     } else if ([fileType isEqualToString:@"png"]) {
         data = UIImagePNGRepresentation(image);
+        originData = UIImagePNGRepresentation(image);
     }
     
     NSMutableDictionary *asset = [[NSMutableDictionary alloc] init];
     asset[@"type"] = [@"image/" stringByAppendingString:fileType];
 
-    NSString *fileName = [self getImageFileName:fileType];
+    NSString *fileName = originFileName;
     NSString *path = [[NSTemporaryDirectory() stringByStandardizingPath] stringByAppendingPathComponent:fileName];
     [data writeToFile:path atomically:YES];
+    NSString *originPath = [[NSTemporaryDirectory() stringByStandardizingPath] stringByAppendingPathComponent:[NSString stringWithFormat:@"origin_%@",fileName]];
+    [originData writeToFile:originPath atomically:YES];
 
     if ([self.options[@"includeBase64"] boolValue]) {
         asset[@"base64"] = [data base64EncodedStringWithOptions:0];
@@ -130,12 +136,22 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
 
     NSURL *fileURL = [NSURL fileURLWithPath:path];
     asset[@"uri"] = [fileURL absoluteString];
+    
+    NSURL *originFileURL = [NSURL fileURLWithPath:originPath];
+    asset[@"sourceURL"] = [originFileURL absoluteString];
 
     NSNumber *fileSizeValue = nil;
     NSError *fileSizeError = nil;
     [fileURL getResourceValue:&fileSizeValue forKey:NSURLFileSizeKey error:&fileSizeError];
     if (fileSizeValue){
         asset[@"fileSize"] = fileSizeValue;
+    }
+    
+    NSNumber *originFileSizeValue = nil;
+    NSError *originFileSizeError = nil;
+    [originFileURL getResourceValue:&originFileSizeValue forKey:NSURLFileSizeKey error:&originFileSizeError];
+    if (originFileSizeValue){
+        asset[@"sourceFileSize"] = originFileSizeValue;
     }
 
     asset[@"fileName"] = fileName;
@@ -183,6 +199,7 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
     asset[@"fileSize"] = [NSNumber numberWithDouble:fileSize];
     asset[@"uri"] = videoDestinationURL.absoluteString;
     asset[@"type"] = [ImagePickerUtils getFileTypeFromUrl:videoDestinationURL];
+    asset[@"fileName"] = fileName;
     
     return asset;
 }
@@ -309,7 +326,9 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
 
         if ([info[UIImagePickerControllerMediaType] isEqualToString:(NSString *) kUTTypeImage]) {
             UIImage *image = [ImagePickerManager getUIImageFromInfo:info];
-            [assets addObject:[self mapImageToAsset:image data:[NSData dataWithContentsOfURL:[ImagePickerManager getNSURLFromInfo:info]]]];
+            PHAsset *imgAsset = info[UIImagePickerControllerPHAsset];
+            NSString *fileName = [imgAsset valueForKey:@"filename"];
+            [assets addObject:[self mapImageToAsset:image data:[NSData dataWithContentsOfURL:[ImagePickerManager getNSURLFromInfo:info]] originFileName:fileName]];
         } else {
             NSError *error;
             NSDictionary *asset = [self mapVideoToAsset:info[UIImagePickerControllerMediaURL] error:&error];
@@ -372,10 +391,11 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
         dispatch_group_enter(completionGroup);
 
         if ([provider hasItemConformingToTypeIdentifier:(NSString *)kUTTypeImage]) {
-            [provider loadDataRepresentationForTypeIdentifier:(NSString *)kUTTypeImage completionHandler:^(NSData * _Nullable data, NSError * _Nullable error) {
-                UIImage *image = [[UIImage alloc] initWithData:data];
-
-                [assets addObject:[self mapImageToAsset:image data:data]];
+            [provider loadFileRepresentationForTypeIdentifier:(NSString *)kUTTypeImage completionHandler:^(NSURL * _Nullable url, NSError * _Nullable error) {
+                NSData *data = [NSData dataWithContentsOfURL:url];
+                UIImage *image = [UIImage imageWithData:data];
+                NSString *fileName = [url lastPathComponent];
+                [assets addObject:[self mapImageToAsset:image data:data originFileName:fileName]];
                 dispatch_group_leave(completionGroup);
             }];
         }
