@@ -1,5 +1,9 @@
 package com.imagepicker;
 
+import static com.imagepicker.ImagePickerModule.REQUEST_LAUNCH_IMAGE_CAPTURE;
+import static com.imagepicker.ImagePickerModule.REQUEST_LAUNCH_LIBRARY;
+import static com.imagepicker.ImagePickerModule.REQUEST_LAUNCH_VIDEO_CAPTURE;
+
 import android.Manifest;
 import android.app.Activity;
 import android.content.ClipData;
@@ -42,8 +46,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
-import static com.imagepicker.ImagePickerModule.*;
-
 public class Utils {
     public static String fileNamePrefix = "rn_image_picker_lib_temp_";
 
@@ -58,7 +60,7 @@ public class Utils {
 
     public static File createFile(Context reactContext, String fileType) {
         try {
-            String filename = fileNamePrefix  + UUID.randomUUID() + "." + fileType;
+            String filename = fileNamePrefix + UUID.randomUUID() + "." + fileType;
 
             // getCacheDir will auto-clean according to android docs
             File fileDir = reactContext.getCacheDir();
@@ -120,7 +122,7 @@ public class Utils {
         }
         ContentResolver contentResolver = context.getContentResolver();
         String fileType = getFileTypeFromMime(contentResolver.getType(sharedStorageUri));
-        Uri toUri =  Uri.fromFile(createFile(context, fileType));
+        Uri toUri = Uri.fromFile(createFile(context, fileType));
         copyUri(sharedStorageUri, toUri, contentResolver);
         return toUri;
     }
@@ -153,7 +155,7 @@ public class Utils {
 
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inJustDecodeBounds = true;
-        BitmapFactory.decodeStream(inputStream,null, options);
+        BitmapFactory.decodeStream(inputStream, null, options);
         return new int[]{options.outWidth, options.outHeight};
     }
 
@@ -199,7 +201,7 @@ public class Utils {
             int[] newDimens = getImageDimensBasedOnConstraints(origDimens[0], origDimens[1], options);
 
             InputStream imageStream = context.getContentResolver().openInputStream(uri);
-            String mimeType =  getMimeTypeFromFileUri(uri);
+            String mimeType = getMimeTypeFromFileUri(uri);
             Bitmap b = BitmapFactory.decodeStream(imageStream);
             b = Bitmap.createScaledBitmap(b, newDimens[0], newDimens[1], true);
             String originalOrientation = getOrientation(uri, context);
@@ -212,7 +214,7 @@ public class Utils {
 
         } catch (Exception e) {
             e.printStackTrace();
-            return  null;
+            return null;
         }
     }
 
@@ -284,8 +286,10 @@ public class Utils {
 
     static Bitmap.CompressFormat getBitmapCompressFormat(String mimeType) {
         switch (mimeType) {
-            case "image/jpeg": return Bitmap.CompressFormat.JPEG;
-            case "image/png": return Bitmap.CompressFormat.PNG;
+            case "image/jpeg":
+                return Bitmap.CompressFormat.JPEG;
+            case "image/png":
+                return Bitmap.CompressFormat.PNG;
         }
         return Bitmap.CompressFormat.JPEG;
     }
@@ -295,9 +299,12 @@ public class Utils {
             return "jpg";
         }
         switch (mimeType) {
-            case "image/jpeg": return "jpg";
-            case "image/png": return "png";
-            case "image/gif": return "gif";
+            case "image/jpeg":
+                return "jpg";
+            case "image/png":
+                return "png";
+            case "image/gif":
+                return "gif";
         }
         return "jpg";
     }
@@ -315,8 +322,10 @@ public class Utils {
         switch (requestCode) {
             case REQUEST_LAUNCH_IMAGE_CAPTURE:
             case REQUEST_LAUNCH_VIDEO_CAPTURE:
-            case REQUEST_LAUNCH_LIBRARY: return true;
-            default: return false;
+            case REQUEST_LAUNCH_LIBRARY:
+                return true;
+            default:
+                return false;
         }
     }
 
@@ -324,13 +333,13 @@ public class Utils {
     // https://issuetracker.google.com/issues/37063818
     public static boolean isCameraPermissionFulfilled(Context context, Activity activity) {
         try {
-             String[] declaredPermissions = context.getPackageManager()
-                     .getPackageInfo(context.getPackageName(), PackageManager.GET_PERMISSIONS)
-                     .requestedPermissions;
+            String[] declaredPermissions = context.getPackageManager()
+                    .getPackageInfo(context.getPackageName(), PackageManager.GET_PERMISSIONS)
+                    .requestedPermissions;
 
-             if (declaredPermissions == null) {
-                 return true;
-             }
+            if (declaredPermissions == null) {
+                return true;
+            }
 
             if (Arrays.asList(declaredPermissions).contains(Manifest.permission.CAMERA)
                     && ActivityCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -358,12 +367,12 @@ public class Utils {
     }
 
     static String getMimeType(Uri uri, Context context) {
-      if (uri.getScheme().equals("file")) {
-        return getMimeTypeFromFileUri(uri);
-      }
+        if (uri.getScheme().equals("file")) {
+            return getMimeTypeFromFileUri(uri);
+        }
 
-      ContentResolver contentResolver = context.getContentResolver();
-      return contentResolver.getType(uri);
+        ContentResolver contentResolver = context.getContentResolver();
+        return contentResolver.getType(uri);
     }
 
     static List<Uri> collectUrisFromData(Intent data) {
@@ -383,11 +392,31 @@ public class Utils {
         return fileUris;
     }
 
-    static ReadableMap getImageResponseMap(Uri uri, Options options, Context context) {
-        String fileName = uri.getLastPathSegment();
+    private static String getFileName(Context context, Uri sourceUri) {
+        if (sourceUri == null) return "";
+        String fileName = "";
+        if (sourceUri.getScheme().contains("content")) {
+            try {
+                Cursor cursor = context.getContentResolver().query(sourceUri, null, null, null, null);
+                if (cursor.moveToFirst()) {
+                    fileName = cursor.getString(cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME));
+                }
+                cursor.close();
+            } catch (IllegalArgumentException e) {
+                e.printStackTrace();
+            }
+        } else {
+            fileName = sourceUri.getLastPathSegment();
+        }
+        return fileName;
+    }
+
+    static ReadableMap getImageResponseMap(Uri sourceUri, Uri uri, Options options, Context context) {
+        String fileName = getFileName(context, sourceUri);
         int[] dimensions = getImageDimensions(uri, context);
 
         WritableMap map = Arguments.createMap();
+        map.putString("sourceURL", sourceUri.toString());
         map.putString("uri", uri.toString());
         map.putDouble("fileSize", getFileSize(uri, context));
         map.putString("fileName", fileName);
@@ -402,9 +431,10 @@ public class Utils {
         return map;
     }
 
-    static ReadableMap getVideoResponseMap(Uri uri, Context context) {
-        String fileName = uri.getLastPathSegment();
+    static ReadableMap getVideoResponseMap(Uri sourceUri, Uri uri, Context context) {
+        String fileName = getFileName(context, sourceUri);
         WritableMap map = Arguments.createMap();
+        map.putString("sourceURL", sourceUri.toString());
         map.putString("uri", uri.toString());
         map.putDouble("fileSize", getFileSize(uri, context));
         map.putInt("duration", getDuration(uri, context));
@@ -416,17 +446,16 @@ public class Utils {
     static ReadableMap getResponseMap(List<Uri> fileUris, Options options, Context context) throws RuntimeException {
         WritableArray assets = Arguments.createArray();
 
-        for(int i = 0; i < fileUris.size(); ++i) {
+        for (int i = 0; i < fileUris.size(); ++i) {
             Uri uri = fileUris.get(i);
-
             if (isImageType(uri, context)) {
                 if (uri.getScheme().contains("content")) {
                     uri = getAppSpecificStorageUri(uri, context);
                 }
                 uri = resizeImage(uri, context, options);
-                assets.pushMap(getImageResponseMap(uri, options, context));
+                assets.pushMap(getImageResponseMap(fileUris.get(i), uri, options, context));
             } else if (isVideoType(uri, context)) {
-                assets.pushMap(getVideoResponseMap(uri, context));
+                assets.pushMap(getVideoResponseMap(fileUris.get(i), uri, context));
             } else {
                 throw new RuntimeException("Unsupported file type");
             }
