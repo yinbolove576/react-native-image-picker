@@ -179,20 +179,21 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
         }
 
         if (url) { // Protect against reported crash
+            
+            BOOL didSucceed = NO;
+            // If we have write access to the source file, move it. Otherwise use copy.
+            if ([fileManager isWritableFileAtPath:[url path]]) {
+              didSucceed = [fileManager moveItemAtURL:url toURL:videoDestinationURL error:error];
+            } else {
+              didSucceed = [fileManager copyItemAtURL:url toURL:videoDestinationURL error:error];
+            }
 
-          // If we have write access to the source file, move it. Otherwise use copy.
-          if ([fileManager isWritableFileAtPath:[url path]]) {
-            [fileManager moveItemAtURL:url toURL:videoDestinationURL error:error];
-          } else {
-            [fileManager copyItemAtURL:url toURL:videoDestinationURL error:error];
-          }
-
-          if (error) {
-              return nil;
-          }
+            if (didSucceed != YES) {
+                return nil;
+            }
         }
     }
-
+    
     NSInteger  fileSize = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil].fileSize;
     NSMutableDictionary *asset = [[NSMutableDictionary alloc] init];
     asset[@"duration"] = [NSNumber numberWithDouble:CMTimeGetSeconds([AVAsset assetWithURL:videoDestinationURL].duration)];
@@ -323,11 +324,14 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
 {
     dispatch_block_t dismissCompletionBlock = ^{
         NSMutableArray<NSDictionary *> *assets = [[NSMutableArray alloc] initWithCapacity:1];
-
+        
         if ([info[UIImagePickerControllerMediaType] isEqualToString:(NSString *) kUTTypeImage]) {
-            UIImage *image = [ImagePickerManager getUIImageFromInfo:info];
-            PHAsset *imgAsset = info[UIImagePickerControllerPHAsset];
-            NSString *fileName = [imgAsset valueForKey:@"filename"];
+            UIImage *image = [ImagePickerManager getUIImageFromInfo:info]; 
+            NSURL *imageUrl = info[UIImagePickerControllerReferenceURL];
+            PHFetchResult *result = [PHAsset fetchAssetsWithALAssetURLs:@[imageUrl] options:nil];
+            PHAsset *phAsset = result.firstObject;
+            NSString *fileName =[phAsset valueForKey:@"filename"];
+
             [assets addObject:[self mapImageToAsset:image data:[NSData dataWithContentsOfURL:[ImagePickerManager getNSURLFromInfo:info]] originFileName:fileName]];
         } else {
             NSError *error;
