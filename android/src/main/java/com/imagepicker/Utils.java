@@ -198,17 +198,27 @@ public class Utils {
                 return uri;
             }
 
-            int[] newDimens = getImageDimensBasedOnConstraints(origDimens[0], origDimens[1], options);
+            int width = origDimens[0];
+            int height = origDimens[1];
 
-            InputStream imageStream = context.getContentResolver().openInputStream(uri);
+            int inSampleSize;
+            if ((width > 1000 && height / width >= 3) || (height > 1000 && width / height >= 3) || width < 1000 || height < 1000) {//max & min
+                inSampleSize = 1;
+            } else {//center
+                inSampleSize = 2;
+            }
+
+            BitmapFactory.Options bitmapOptions = new BitmapFactory.Options();
+            bitmapOptions.inPreferredConfig = Bitmap.Config.RGB_565;
+            bitmapOptions.inSampleSize = inSampleSize;
+            Bitmap bitmap = BitmapFactory.decodeFile(uri.getPath(), bitmapOptions);
+
             String mimeType = getMimeTypeFromFileUri(uri);
-            Bitmap b = BitmapFactory.decodeStream(imageStream);
-            b = Bitmap.createScaledBitmap(b, newDimens[0], newDimens[1], true);
             String originalOrientation = getOrientation(uri, context);
 
             File file = createFile(context, getFileTypeFromMime(mimeType));
             OutputStream os = context.getContentResolver().openOutputStream(Uri.fromFile(file));
-            b.compress(getBitmapCompressFormat(mimeType), options.quality, os);
+            bitmap.compress(Bitmap.CompressFormat.WEBP, inSampleSize == 1 ? 75 : 100, os);
             setOrientation(file, originalOrientation, context);
             return Uri.fromFile(file);
 
@@ -418,12 +428,20 @@ public class Utils {
         WritableMap map = Arguments.createMap();
         map.putString("sourceURL", sourceUri.toString());
         map.putDouble("sourceFileSize", getFileSize(sourceUri, context));
-        map.putString("uri", uri.toString());
+
         map.putDouble("fileSize", getFileSize(uri, context));
         map.putString("fileName", fileName);
         map.putString("type", getMimeTypeFromFileUri(uri));
-        map.putInt("width", dimensions[0]);
-        map.putInt("height", dimensions[1]);
+        if (dimensions[0] == -1) {
+            int[] originDimensions = getImageDimensions(sourceUri, context);
+            map.putString("uri", sourceUri.toString());
+            map.putInt("width", originDimensions[0]);
+            map.putInt("height", originDimensions[1]);
+        } else {
+            map.putString("uri", uri.toString());
+            map.putInt("width", dimensions[0]);
+            map.putInt("height", dimensions[1]);
+        }
         map.putString("type", getMimeType(uri, context));
 
         if (options.includeBase64) {
