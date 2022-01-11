@@ -23,6 +23,7 @@ import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.util.Base64;
+import android.util.Log;
 import android.webkit.MimeTypeMap;
 
 import androidx.core.app.ActivityCompat;
@@ -36,18 +37,25 @@ import com.facebook.react.bridge.WritableMap;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 
+import io.microshow.rxffmpeg.RxFFmpegCommandList;
+import io.microshow.rxffmpeg.RxFFmpegInvoke;
+import io.microshow.rxffmpeg.RxFFmpegSubscriber;
+
 public class Utils {
-    public static String fileNamePrefix = "rn_image_picker_lib_temp_";
+    public static String fileNamePrefix = "rnImgCache";
+    public static String videoFileNamePrefix = "rnVidCache";
 
     public static String errCameraUnavailable = "camera_unavailable";
     public static String errPermission = "permission";
@@ -58,14 +66,18 @@ public class Utils {
 
     public static String cameraPermissionDescription = "This library does not require Manifest.permission.CAMERA, if you add this permission in manifest then you have to obtain the same.";
 
-    public static File createFile(Context reactContext, String fileType) {
+    public static File createFile(boolean isImage, Context reactContext, String fileType) {
         try {
-            String filename = fileNamePrefix + UUID.randomUUID() + "." + fileType;
+            String filename = File.separator + (isImage ? fileNamePrefix : videoFileNamePrefix) + File.separator + UUID.randomUUID() + "." + fileType;
 
             // getCacheDir will auto-clean according to android docs
             File fileDir = reactContext.getCacheDir();
 
             File file = new File(fileDir, filename);
+            File dir = file.getParentFile();
+            if (dir != null && !dir.exists()) {
+                dir.mkdirs();
+            }
             file.createNewFile();
             return file;
 
@@ -116,13 +128,18 @@ public class Utils {
     }
 
     // Make a copy of shared storage files inside app specific storage so that users can access it later.
-    public static Uri getAppSpecificStorageUri(Uri sharedStorageUri, Context context) {
+    public static Uri getAppSpecificStorageUri(boolean isImage, Uri sharedStorageUri, Context context) {
         if (sharedStorageUri == null) {
             return null;
         }
         ContentResolver contentResolver = context.getContentResolver();
-        String fileType = getFileTypeFromMime(contentResolver.getType(sharedStorageUri));
-        Uri toUri = Uri.fromFile(createFile(context, fileType));
+        String fileType;
+        if (isImage) {
+            fileType = getFileTypeFromMime(contentResolver.getType(sharedStorageUri));
+        } else {
+            fileType = getVideoTypeFromMime(contentResolver.getType(sharedStorageUri));
+        }
+        Uri toUri = Uri.fromFile(createFile(isImage, context, fileType));
         copyUri(sharedStorageUri, toUri, contentResolver);
         return toUri;
     }
@@ -198,27 +215,17 @@ public class Utils {
                 return uri;
             }
 
-            int width = origDimens[0];
-            int height = origDimens[1];
+            int[] newDimens = getImageDimensBasedOnConstraints(origDimens[0], origDimens[1], options);
 
-            int inSampleSize;
-            if ((width > 1000 && height / width >= 3) || (height > 1000 && width / height >= 3) || width < 1000 || height < 1000) {//max & min
-                inSampleSize = 1;
-            } else {//center
-                inSampleSize = 2;
-            }
-
-            BitmapFactory.Options bitmapOptions = new BitmapFactory.Options();
-            bitmapOptions.inPreferredConfig = Bitmap.Config.RGB_565;
-            bitmapOptions.inSampleSize = inSampleSize;
-            Bitmap bitmap = BitmapFactory.decodeFile(uri.getPath(), bitmapOptions);
-
+            InputStream imageStream = context.getContentResolver().openInputStream(uri);
             String mimeType = getMimeTypeFromFileUri(uri);
+            Bitmap b = BitmapFactory.decodeStream(imageStream);
+            b = Bitmap.createScaledBitmap(b, newDimens[0], newDimens[1], true);
             String originalOrientation = getOrientation(uri, context);
 
-            File file = createFile(context, getFileTypeFromMime(mimeType));
+            File file = createFile(true, context, getFileTypeFromMime(mimeType));
             OutputStream os = context.getContentResolver().openOutputStream(Uri.fromFile(file));
-            bitmap.compress(Bitmap.CompressFormat.WEBP, inSampleSize == 1 ? 75 : 100, os);
+            b.compress(getBitmapCompressFormat(mimeType), options.quality, os);
             setOrientation(file, originalOrientation, context);
             return Uri.fromFile(file);
 
@@ -317,6 +324,16 @@ public class Utils {
                 return "gif";
         }
         return "jpg";
+    }
+
+    static String getVideoTypeFromMime(String mimeType) {
+        if (mimeType == null) {
+            return "mp4";
+        }
+        if (mimeType.contains("/")) {
+            return mimeType.split("/")[1];
+        }
+        return "mp4";
     }
 
     static void deleteFile(Uri uri) {
@@ -428,20 +445,12 @@ public class Utils {
         WritableMap map = Arguments.createMap();
         map.putString("sourceURL", sourceUri.toString());
         map.putDouble("sourceFileSize", getFileSize(sourceUri, context));
-
+        map.putString("uri", uri.toString());
         map.putDouble("fileSize", getFileSize(uri, context));
         map.putString("fileName", fileName);
         map.putString("type", getMimeTypeFromFileUri(uri));
-        if (dimensions[0] == -1) {
-            int[] originDimensions = getImageDimensions(sourceUri, context);
-            map.putString("uri", sourceUri.toString());
-            map.putInt("width", originDimensions[0]);
-            map.putInt("height", originDimensions[1]);
-        } else {
-            map.putString("uri", uri.toString());
-            map.putInt("width", dimensions[0]);
-            map.putInt("height", dimensions[1]);
-        }
+        map.putInt("width", dimensions[0]);
+        map.putInt("height", dimensions[1]);
         map.putString("type", getMimeType(uri, context));
 
         if (options.includeBase64) {
@@ -463,6 +472,79 @@ public class Utils {
         return map;
     }
 
+    /**
+     * 获取文件大小
+     *
+     * @param filePath
+     * @return
+     */
+    public static long getFileSize(String filePath) {
+        FileChannel fc = null;
+        long fileSize = 0;
+        try {
+            File f = new File(filePath);
+            if (f.exists() && f.isFile()) {
+                FileInputStream fis = new FileInputStream(f);
+                fc = fis.getChannel();
+                fileSize = fc.size();
+            } else {
+                Log.e("getFileSize", "file doesn't exist or is not a file");
+            }
+        } catch (FileNotFoundException e) {
+            Log.e("getFileSize", e.getMessage());
+        } catch (IOException e) {
+            Log.e("getFileSize", e.getMessage());
+        } finally {
+            if (null != fc) {
+                try {
+                    fc.close();
+                } catch (IOException e) {
+                    Log.e("getFileSize", e.getMessage());
+                }
+            }
+        }
+        return fileSize;
+    }
+
+    /**
+     * 获取压缩命令
+     *
+     * @param uri
+     * @param width
+     * @param height
+     * @param rotate
+     * @param outputPath
+     * @return
+     */
+    public static String[] getBoxblur(Uri uri, int width, int height, int rotate, String outputPath) {
+        Log.i("YB", "width: " + width + ",height: " + height + ",rotate: " + rotate);
+        RxFFmpegCommandList cmdlist = new RxFFmpegCommandList();
+        cmdlist.append("-i");
+        cmdlist.append(uri.getPath());
+        cmdlist.append("-vf");
+        if (rotate == 90 || rotate == 270) {//横向视频
+            if (width >= 1280) {
+                cmdlist.append("scale=720:1280");
+            } else {
+                cmdlist.append("scale=" + width + ":" + height);
+            }
+        } else {//竖向视频
+            if (rotate == 0 && height >= width) {//已经由其他APP转码过
+                cmdlist.append("scale=" + width + ":" + height);
+            } else {
+                if (height >= 720) {
+                    cmdlist.append("scale=1280:720");
+                } else {
+                    cmdlist.append("scale=" + height + ":" + width);
+                }
+            }
+        }
+        cmdlist.append("-preset");//转码速度，ultrafast，superfast，veryfast，faster，fast，medium，slow，slower，
+        cmdlist.append("superfast");
+        cmdlist.append(outputPath);
+        return cmdlist.build();
+    }
+
     static ReadableMap getResponseMap(List<Uri> fileUris, Options options, Context context) throws RuntimeException {
         WritableArray assets = Arguments.createArray();
 
@@ -470,11 +552,60 @@ public class Utils {
             Uri uri = fileUris.get(i);
             if (isImageType(uri, context)) {
                 if (uri.getScheme().contains("content")) {
-                    uri = getAppSpecificStorageUri(uri, context);
+                    uri = getAppSpecificStorageUri(true, uri, context);
                 }
                 uri = resizeImage(uri, context, options);
                 assets.pushMap(getImageResponseMap(fileUris.get(i), uri, options, context));
             } else if (isVideoType(uri, context)) {
+                if (uri.getScheme().contains("content")) {
+                    uri = getAppSpecificStorageUri(false, uri, context);
+                }
+                MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+                retriever.setDataSource(uri.getPath());
+                int width = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
+                int height = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
+                int rotate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION));
+                int bitrate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE));
+                int duration = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
+
+                final long originVideoSize = getFileSize(uri.getPath());
+                Log.i("YB", "size: " + originVideoSize + ",bitrate: " + bitrate + ",duration: " + duration);
+                if ((((rotate == 90 || rotate == 270) && width >= 1280)
+                        || (rotate == 0 || rotate == 180) && width >= height && height >= 720)
+                        && bitrate / 1024 > 3000) {
+                    final String outputPath = context.getCacheDir().getPath() + File.separator
+                            + videoFileNamePrefix + File.separator + UUID.randomUUID() + ".mp4";
+                    Log.i("YB", "start");
+                    RxFFmpegInvoke.getInstance()
+                            .runCommandRxJava(getBoxblur(uri, width, height, rotate, outputPath))
+                            .subscribe(new RxFFmpegSubscriber() {
+                                @Override
+                                public void onFinish() {
+                                    Log.i("YB", "finish");
+                                    long compressVideoSize = getFileSize(outputPath);
+                                    if (compressVideoSize > originVideoSize) {
+                                        Log.i("YB", "返回压缩前的视频");
+                                    }
+                                }
+
+                                @Override
+                                public void onProgress(int progress, long progressTime) {
+//                                Log.i("YB", "progress: " + progress + ",time: " + progressTime);
+                                }
+
+                                @Override
+                                public void onCancel() {
+                                    Log.i("YB", "onCancel");
+                                }
+
+                                @Override
+                                public void onError(String message) {
+                                    Log.i("YB", message);
+                                }
+                            });
+                } else {
+                    Log.i("YB", "无需压缩");
+                }
                 assets.pushMap(getVideoResponseMap(fileUris.get(i), uri, context));
             } else {
                 throw new RuntimeException("Unsupported file type");
@@ -483,7 +614,6 @@ public class Utils {
 
         WritableMap response = Arguments.createMap();
         response.putArray("assets", assets);
-
         return response;
     }
 
