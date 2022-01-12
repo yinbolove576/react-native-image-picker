@@ -26,14 +26,17 @@ import android.util.Base64;
 import android.util.Log;
 import android.webkit.MimeTypeMap;
 
+import androidx.annotation.Nullable;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.FileProvider;
 import androidx.exifinterface.media.ExifInterface;
 
 import com.facebook.react.bridge.Arguments;
+import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.modules.core.DeviceEventManagerModule;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -63,6 +66,8 @@ public class Utils {
 
     public static String mediaTypePhoto = "photo";
     public static String mediaTypeVideo = "video";
+
+    public static String VIDEO_COMPRESS_EVENT = "VideoCompressEvent";
 
     public static String cameraPermissionDescription = "This library does not require Manifest.permission.CAMERA, if you add this permission in manifest then you have to obtain the same.";
 
@@ -637,32 +642,59 @@ public class Utils {
         return Integer.parseInt(retriever.extractMetadata(key));
     }
 
-    private static void compressVideo(String[] cmdList, final String outputPath, final long originVideoSize) {
+    private static void sendEvent(ReactContext reactContext,
+                                  String eventName,
+                                  @Nullable WritableMap params) {
+        reactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+                .emit(eventName, params);
+    }
+
+    private static void compressVideo(final Context context, String[] cmdList,
+                                      final String vidPath, final String outputPath,
+                                      final long originVideoSize) {
         RxFFmpegInvoke.getInstance()
                 .runCommandRxJava(cmdList)
                 .subscribe(new RxFFmpegSubscriber() {
                     @Override
                     public void onFinish() {
-                        Log.i("YB", "Compress finish");
+                        WritableMap params = Arguments.createMap();
+                        params.putString("mode", "compressVideo");
+                        params.putInt("status", 2);
                         long compressVideoSize = getFileSize(outputPath);
                         if (compressVideoSize > originVideoSize) {
                             Log.i("YB", "返回压缩前的视频");
+                            params.putString("compressVidPath", vidPath);
                         }
+                        sendEvent(((ReactContext) context), VIDEO_COMPRESS_EVENT, params);
                     }
 
                     @Override
                     public void onProgress(int progress, long progressTime) {
-//                                Log.i("YB", "progress: " + progress + ",time: " + progressTime);
+                        WritableMap params = Arguments.createMap();
+                        params.putString("mode", "compressVideo");
+                        params.putInt("status", 1);
+                        params.putInt("progress", progress);
+                        params.putString("progressTime", Long.toString(progressTime));
+                        sendEvent(((ReactContext) context), VIDEO_COMPRESS_EVENT, params);
                     }
 
                     @Override
                     public void onCancel() {
                         Log.i("YB", "onCancel");
+                        WritableMap params = Arguments.createMap();
+                        params.putString("mode", "compressVideo");
+                        params.putInt("status", 0);
+                        params.putString("msg", "cancel");
+                        sendEvent(((ReactContext) context), VIDEO_COMPRESS_EVENT, params);
                     }
 
                     @Override
                     public void onError(String message) {
-                        Log.i("YB", message);
+                        WritableMap params = Arguments.createMap();
+                        params.putString("mode", "compressVideo");
+                        params.putInt("status", -1);
+                        params.putString("msg", message);
+                        sendEvent(((ReactContext) context), VIDEO_COMPRESS_EVENT, params);
                     }
                 });
     }
@@ -670,7 +702,7 @@ public class Utils {
     public static VideoInfo resizeVideo(final Uri uri, final Context context) {
         VideoInfo videoInfo = new VideoInfo();
         MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        String vidPath = uri.getPath();
+        final String vidPath = uri.getPath();
         retriever.setDataSource(vidPath);
         final int width = getMetaDataValue(retriever, MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH);
         final int height = getMetaDataValue(retriever, MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
@@ -711,25 +743,45 @@ public class Utils {
                 .subscribe(new RxFFmpegSubscriber() {
                     @Override
                     public void onFinish() {
-                        Log.i("YB", "Screenshot finish");
                         if (isCompress) {
                             String[] vidCmdList = getBoxblur(uri, width, height, rotate, compressVidPath);
-                            compressVideo(vidCmdList, compressVidPath, originVideoSize);
+                            compressVideo(context, vidCmdList, vidPath, compressVidPath, originVideoSize);
                         }
+                        WritableMap params = Arguments.createMap();
+                        params.putString("mode", "screenshot");
+                        params.putInt("status", 2);
+                        params.putString("msg", "finish");
+                        sendEvent(((ReactContext) context), VIDEO_COMPRESS_EVENT, params);
                     }
 
                     @Override
                     public void onProgress(int progress, long progressTime) {
+//                        WritableMap params = Arguments.createMap();
+//                        params.putString("mode", "screenshot");
+//                        params.putInt("status", 1);
+//                        params.putInt("progress", progress);
+//                        params.putString("progressTime", Long.toString(progressTime));
+//                        sendEvent(((ReactContext) context), VIDEO_COMPRESS_EVENT, params);
                     }
 
                     @Override
                     public void onCancel() {
                         Log.i("YB", "onCancel");
+                        WritableMap params = Arguments.createMap();
+                        params.putString("mode", "screenshot");
+                        params.putInt("status", 0);
+                        params.putString("msg", "cancel");
+                        sendEvent(((ReactContext) context), VIDEO_COMPRESS_EVENT, params);
                     }
 
                     @Override
                     public void onError(String message) {
                         Log.i("YB", "error: " + message);
+                        WritableMap params = Arguments.createMap();
+                        params.putString("mode", "screenshot");
+                        params.putInt("status", -1);
+                        params.putString("msg", message);
+                        sendEvent(((ReactContext) context), VIDEO_COMPRESS_EVENT, params);
                     }
                 });
         return videoInfo;

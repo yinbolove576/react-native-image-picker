@@ -10,16 +10,21 @@ import android.provider.MediaStore;
 import com.facebook.react.bridge.ActivityEventListener;
 import com.facebook.react.bridge.Callback;
 import com.facebook.react.bridge.ReactApplicationContext;
+import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.ReadableMap;
+import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.module.annotations.ReactModule;
+import com.facebook.react.modules.core.DeviceEventManagerModule;
 
 import java.io.File;
 import java.util.Collections;
 import java.util.List;
 
 import static com.imagepicker.Utils.*;
+
+import androidx.annotation.Nullable;
 
 @ReactModule(name = ImagePickerModule.NAME)
 public class ImagePickerModule extends ReactContextBaseJavaModule implements ActivityEventListener {
@@ -48,6 +53,17 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
     @Override
     public String getName() {
         return NAME;
+    }
+
+
+    @ReactMethod
+    public void addListener(String eventName) {
+        // Set up any upstream listeners or background tasks as necessary
+    }
+
+    @ReactMethod
+    public void removeListeners(Integer count) {
+        // Remove upstream listeners, stop unnecessary background tasks
     }
 
     @ReactMethod
