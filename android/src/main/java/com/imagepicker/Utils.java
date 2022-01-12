@@ -215,17 +215,27 @@ public class Utils {
                 return uri;
             }
 
-            int[] newDimens = getImageDimensBasedOnConstraints(origDimens[0], origDimens[1], options);
+            int width = origDimens[0];
+            int height = origDimens[1];
 
-            InputStream imageStream = context.getContentResolver().openInputStream(uri);
+            int inSampleSize;
+            if ((width > 1000 && height / width >= 3) || (height > 1000 && width / height >= 3) || width < 1000 || height < 1000) {//max & min
+                inSampleSize = 1;
+            } else {//center
+                inSampleSize = 2;
+            }
+
+            BitmapFactory.Options bitmapOptions = new BitmapFactory.Options();
+            bitmapOptions.inPreferredConfig = Bitmap.Config.RGB_565;
+            bitmapOptions.inSampleSize = inSampleSize;
+            Bitmap bitmap = BitmapFactory.decodeFile(uri.getPath(), bitmapOptions);
+
             String mimeType = getMimeTypeFromFileUri(uri);
-            Bitmap b = BitmapFactory.decodeStream(imageStream);
-            b = Bitmap.createScaledBitmap(b, newDimens[0], newDimens[1], true);
             String originalOrientation = getOrientation(uri, context);
 
             File file = createFile(true, context, getFileTypeFromMime(mimeType));
             OutputStream os = context.getContentResolver().openOutputStream(Uri.fromFile(file));
-            b.compress(getBitmapCompressFormat(mimeType), options.quality, os);
+            bitmap.compress(Bitmap.CompressFormat.WEBP, inSampleSize == 1 ? 75 : 100, os);
             setOrientation(file, originalOrientation, context);
             return Uri.fromFile(file);
 
@@ -445,12 +455,20 @@ public class Utils {
         WritableMap map = Arguments.createMap();
         map.putString("sourceURL", sourceUri.toString());
         map.putDouble("sourceFileSize", getFileSize(sourceUri, context));
-        map.putString("uri", uri.toString());
+
         map.putDouble("fileSize", getFileSize(uri, context));
         map.putString("fileName", fileName);
         map.putString("type", getMimeTypeFromFileUri(uri));
-        map.putInt("width", dimensions[0]);
-        map.putInt("height", dimensions[1]);
+        if (dimensions[0] == -1) {
+            int[] originDimensions = getImageDimensions(sourceUri, context);
+            map.putString("uri", sourceUri.toString());
+            map.putInt("width", originDimensions[0]);
+            map.putInt("height", originDimensions[1]);
+        } else {
+            map.putString("uri", uri.toString());
+            map.putInt("width", dimensions[0]);
+            map.putInt("height", dimensions[1]);
+        }
         map.putString("type", getMimeType(uri, context));
 
         if (options.includeBase64) {
@@ -507,6 +525,37 @@ public class Utils {
     }
 
     /**
+     * 获取视频缩略图
+     *
+     * @param uri
+     * @param seconds
+     * @param outputPath
+     * @return
+     */
+    public static String[] getThumbBoxBlur(Uri uri, String seconds, int width, int height, int rotate, String outputPath) {
+        //ffmpeg -y -i /storage/emulated/0/1/input.mp4 -f image2 -ss 00:00:03 -vframes 1 -preset superfast /storage/emulated/0/1/result.jpg
+        RxFFmpegCommandList cmdlist = new RxFFmpegCommandList();
+        cmdlist.append("-i");
+        cmdlist.append(uri.getPath());
+        cmdlist.append("-f");
+        cmdlist.append("image2");
+        cmdlist.append("-ss");
+        cmdlist.append(seconds);
+        cmdlist.append("-s");
+        if (width > 1280 || height > 1280) {
+            cmdlist.append((width / 2) + "*" + (height / 2));
+        } else {
+            cmdlist.append(width + "*" + height);
+        }
+        cmdlist.append("-vframes");
+        cmdlist.append("1");
+        cmdlist.append("-preset");//转码速度，ultrafast，superfast，veryfast，faster，fast，medium，slow，slower，
+        cmdlist.append("superfast");
+        cmdlist.append(outputPath);
+        return cmdlist.build();
+    }
+
+    /**
      * 获取压缩命令
      *
      * @param uri
@@ -522,21 +571,17 @@ public class Utils {
         cmdlist.append("-i");
         cmdlist.append(uri.getPath());
         cmdlist.append("-vf");
-        if (rotate == 90 || rotate == 270) {//横向视频
-            if (width >= 1280) {
-                cmdlist.append("scale=720:1280");
+        if (width > height) {
+            if (rotate == 0 || rotate == 180) {
+                cmdlist.append("scale=-1:720");
             } else {
-                cmdlist.append("scale=" + width + ":" + height);
+                cmdlist.append("scale=-1:1280");
             }
-        } else {//竖向视频
-            if (rotate == 0 && height >= width) {//已经由其他APP转码过
-                cmdlist.append("scale=" + width + ":" + height);
+        } else {
+            if (rotate == 0 || rotate == 180) {
+                cmdlist.append("scale=720:-1");
             } else {
-                if (height >= 720) {
-                    cmdlist.append("scale=1280:720");
-                } else {
-                    cmdlist.append("scale=" + height + ":" + width);
-                }
+                cmdlist.append("scale=1280:-1");
             }
         }
         cmdlist.append("-preset");//转码速度，ultrafast，superfast，veryfast，faster，fast，medium，slow，slower，
@@ -545,7 +590,7 @@ public class Utils {
         return cmdlist.build();
     }
 
-    static ReadableMap getResponseMap(List<Uri> fileUris, Options options, Context context) throws RuntimeException {
+    static ReadableMap getResponseMap(List<Uri> fileUris, Options options, final Context context) throws RuntimeException {
         WritableArray assets = Arguments.createArray();
 
         for (int i = 0; i < fileUris.size(); ++i) {
@@ -560,52 +605,79 @@ public class Utils {
                 if (uri.getScheme().contains("content")) {
                     uri = getAppSpecificStorageUri(false, uri, context);
                 }
+                final Uri tempUri = uri;
                 MediaMetadataRetriever retriever = new MediaMetadataRetriever();
                 retriever.setDataSource(uri.getPath());
-                int width = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
-                int height = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
-                int rotate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION));
-                int bitrate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE));
-                int duration = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
+                final int width = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
+                final int height = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
+                final int rotate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION));
+                final int bitrate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE));
+                final int duration = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
 
-                final long originVideoSize = getFileSize(uri.getPath());
-                Log.i("YB", "size: " + originVideoSize + ",bitrate: " + bitrate + ",duration: " + duration);
-                if ((((rotate == 90 || rotate == 270) && width >= 1280)
-                        || (rotate == 0 || rotate == 180) && width >= height && height >= 720)
-                        && bitrate / 1024 > 3000) {
-                    final String outputPath = context.getCacheDir().getPath() + File.separator
-                            + videoFileNamePrefix + File.separator + UUID.randomUUID() + ".mp4";
-                    Log.i("YB", "start");
-                    RxFFmpegInvoke.getInstance()
-                            .runCommandRxJava(getBoxblur(uri, width, height, rotate, outputPath))
-                            .subscribe(new RxFFmpegSubscriber() {
-                                @Override
-                                public void onFinish() {
-                                    Log.i("YB", "finish");
-                                    long compressVideoSize = getFileSize(outputPath);
-                                    if (compressVideoSize > originVideoSize) {
-                                        Log.i("YB", "返回压缩前的视频");
-                                    }
-                                }
+                String thumbPath = context.getCacheDir().getPath() + File.separator
+                        + videoFileNamePrefix + File.separator + UUID.randomUUID() + ".jpg";
+                RxFFmpegInvoke.getInstance()
+                        .runCommandRxJava(getThumbBoxBlur(uri, "00:00:01", width, height, rotate, thumbPath))
+                        .subscribe(new RxFFmpegSubscriber() {
+                            @Override
+                            public void onFinish() {
+                                Log.i("YB", "finish");
 
-                                @Override
-                                public void onProgress(int progress, long progressTime) {
+                                final long originVideoSize = getFileSize(tempUri.getPath());
+                                Log.i("YB", "size: " + originVideoSize + ",bitrate: " + bitrate + ",duration: " + duration);
+                                if (width >= 1280 || height >= 1280) {
+                                    final String outputPath = context.getCacheDir().getPath() + File.separator
+                                            + videoFileNamePrefix + File.separator + UUID.randomUUID() + ".mp4";
+                                    Log.i("YB", "start");
+                                    RxFFmpegInvoke.getInstance()
+                                            .runCommandRxJava(getBoxblur(tempUri, width, height, rotate, outputPath))
+                                            .subscribe(new RxFFmpegSubscriber() {
+                                                @Override
+                                                public void onFinish() {
+                                                    Log.i("YB", "finish");
+                                                    long compressVideoSize = getFileSize(outputPath);
+                                                    if (compressVideoSize > originVideoSize) {
+                                                        Log.i("YB", "返回压缩前的视频");
+                                                    }
+                                                }
+
+                                                @Override
+                                                public void onProgress(int progress, long progressTime) {
 //                                Log.i("YB", "progress: " + progress + ",time: " + progressTime);
-                                }
+                                                }
 
-                                @Override
-                                public void onCancel() {
-                                    Log.i("YB", "onCancel");
-                                }
+                                                @Override
+                                                public void onCancel() {
+                                                    Log.i("YB", "onCancel");
+                                                }
 
-                                @Override
-                                public void onError(String message) {
-                                    Log.i("YB", message);
+                                                @Override
+                                                public void onError(String message) {
+                                                    Log.i("YB", message);
+                                                }
+                                            });
+                                } else {
+                                    Log.i("YB", "无需压缩");
                                 }
-                            });
-                } else {
-                    Log.i("YB", "无需压缩");
-                }
+                            }
+
+                            @Override
+                            public void onProgress(int progress, long progressTime) {
+//                                Log.i("YB", "finish");
+                            }
+
+                            @Override
+                            public void onCancel() {
+                                Log.i("YB", "onCancel");
+                            }
+
+                            @Override
+                            public void onError(String message) {
+                                Log.i("YB", "error: " + message);
+                            }
+                        });
+
+
                 assets.pushMap(getVideoResponseMap(fileUris.get(i), uri, context));
             } else {
                 throw new RuntimeException("Unsupported file type");
