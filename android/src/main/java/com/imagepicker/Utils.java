@@ -532,20 +532,32 @@ public class Utils {
      * @param outputPath
      * @return
      */
-    public static String[] getThumbBoxBlur(Uri uri, String seconds, int width, int height, int rotate, String outputPath) {
+    public static String[] getThumbBoxBlur(Uri uri, int seconds, int width, int height, int rotate, String outputPath) {
         //ffmpeg -y -i /storage/emulated/0/1/input.mp4 -f image2 -ss 00:00:03 -vframes 1 -preset superfast /storage/emulated/0/1/result.jpg
+        //关键帧
+        //ffmpeg -i video_name_output.mp4 -vf select='eq(pict_type\,I)' -vsync vfr -s 750*1334 -f image2 core-%02d.jpeg
         RxFFmpegCommandList cmdlist = new RxFFmpegCommandList();
+        cmdlist.append("-ss");
+        cmdlist.append(String.valueOf(seconds));
         cmdlist.append("-i");
         cmdlist.append(uri.getPath());
         cmdlist.append("-f");
         cmdlist.append("image2");
-        cmdlist.append("-ss");
-        cmdlist.append(seconds);
-        cmdlist.append("-s");
-        if (width > 1280 || height > 1280) {
-            cmdlist.append((width / 2) + "*" + (height / 2));
-        } else {
-            cmdlist.append(width + "*" + height);
+        if (width >= 1280 || height >= 1280) {
+            cmdlist.append("-s");
+            if (width > height) {
+                if (rotate == 0 || rotate == 180) {
+                    cmdlist.append((width * 720 / height) + "x720");
+                } else {
+                    cmdlist.append("720x" + (width * 720 / height));
+                }
+            } else {
+                if (rotate == 0 || rotate == 180) {
+                    cmdlist.append("720x" + (height * 720 / width));
+                } else {
+                    cmdlist.append((height * 720 / width) + "x720");
+                }
+            }
         }
         cmdlist.append("-vframes");
         cmdlist.append("1");
@@ -566,7 +578,6 @@ public class Utils {
      * @return
      */
     public static String[] getBoxblur(Uri uri, int width, int height, int rotate, String outputPath) {
-        Log.i("YB", "width: " + width + ",height: " + height + ",rotate: " + rotate);
         RxFFmpegCommandList cmdlist = new RxFFmpegCommandList();
         cmdlist.append("-i");
         cmdlist.append(uri.getPath());
@@ -613,18 +624,16 @@ public class Utils {
                 final int rotate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION));
                 final int bitrate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE));
                 final int duration = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
-
+                final long originVideoSize = getFileSize(tempUri.getPath());
+                Log.i("YB", "width: " + width + ",height: " + height + ",rotate: " + rotate + ",duration: " + duration + ",size: " + originVideoSize + ",bitrate: " + bitrate);
                 String thumbPath = context.getCacheDir().getPath() + File.separator
                         + videoFileNamePrefix + File.separator + UUID.randomUUID() + ".jpg";
                 RxFFmpegInvoke.getInstance()
-                        .runCommandRxJava(getThumbBoxBlur(uri, "00:00:01", width, height, rotate, thumbPath))
+                        .runCommandRxJava(getThumbBoxBlur(uri, 1, width, height, rotate, thumbPath))
                         .subscribe(new RxFFmpegSubscriber() {
                             @Override
                             public void onFinish() {
                                 Log.i("YB", "finish");
-
-                                final long originVideoSize = getFileSize(tempUri.getPath());
-                                Log.i("YB", "size: " + originVideoSize + ",bitrate: " + bitrate + ",duration: " + duration);
                                 if (width >= 1280 || height >= 1280) {
                                     final String outputPath = context.getCacheDir().getPath() + File.separator
                                             + videoFileNamePrefix + File.separator + UUID.randomUUID() + ".mp4";
