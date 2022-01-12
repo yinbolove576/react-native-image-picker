@@ -528,21 +528,21 @@ public class Utils {
      * 获取视频缩略图
      *
      * @param uri
-     * @param seconds
      * @param outputPath
      * @return
      */
-    public static String[] getThumbBoxBlur(Uri uri, int seconds, int width, int height, int rotate, String outputPath) {
-        //ffmpeg -y -i /storage/emulated/0/1/input.mp4 -f image2 -ss 00:00:03 -vframes 1 -preset superfast /storage/emulated/0/1/result.jpg
+    public static String[] getThumbBoxBlur(Uri uri, int width, int height, int rotate, String outputPath) {
         //关键帧
-        //ffmpeg -i video_name_output.mp4 -vf select='eq(pict_type\,I)' -vsync vfr -s 750*1334 -f image2 core-%02d.jpeg
+        //ffmpeg -i video_name_output.mp4 -vf select='eq(pict_type\,I)' -frames:v 1 -vsync vfr -s 750*1334 -f image2 core-%02d.jpeg
         RxFFmpegCommandList cmdlist = new RxFFmpegCommandList();
-        cmdlist.append("-ss");
-        cmdlist.append(String.valueOf(seconds));
         cmdlist.append("-i");
         cmdlist.append(uri.getPath());
-        cmdlist.append("-f");
-        cmdlist.append("image2");
+        cmdlist.append("-vf");
+        cmdlist.append("select='eq(pict_type\\,I)'");
+        cmdlist.append("-frames:v");
+        cmdlist.append("1");
+        cmdlist.append("-vsync");
+        cmdlist.append("vfr");
         if (width >= 1280 || height >= 1280) {
             cmdlist.append("-s");
             if (width > height) {
@@ -559,8 +559,8 @@ public class Utils {
                 }
             }
         }
-        cmdlist.append("-vframes");
-        cmdlist.append("1");
+        cmdlist.append("-f");
+        cmdlist.append("image2");
         cmdlist.append("-preset");//转码速度，ultrafast，superfast，veryfast，faster，fast，medium，slow，slower，
         cmdlist.append("superfast");
         cmdlist.append(outputPath);
@@ -629,15 +629,14 @@ public class Utils {
                 String thumbPath = context.getCacheDir().getPath() + File.separator
                         + videoFileNamePrefix + File.separator + UUID.randomUUID() + ".jpg";
                 RxFFmpegInvoke.getInstance()
-                        .runCommandRxJava(getThumbBoxBlur(uri, 1, width, height, rotate, thumbPath))
+                        .runCommandRxJava(getThumbBoxBlur(uri, width, height, rotate, thumbPath))
                         .subscribe(new RxFFmpegSubscriber() {
                             @Override
                             public void onFinish() {
                                 Log.i("YB", "finish");
-                                if (width >= 1280 || height >= 1280) {
+                                if ((width >= 1280 || height >= 1280) && bitrate / 1024 > 3200) {
                                     final String outputPath = context.getCacheDir().getPath() + File.separator
                                             + videoFileNamePrefix + File.separator + UUID.randomUUID() + ".mp4";
-                                    Log.i("YB", "start");
                                     RxFFmpegInvoke.getInstance()
                                             .runCommandRxJava(getBoxblur(tempUri, width, height, rotate, outputPath))
                                             .subscribe(new RxFFmpegSubscriber() {
