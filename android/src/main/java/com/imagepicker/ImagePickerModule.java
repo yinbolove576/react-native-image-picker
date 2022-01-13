@@ -1,5 +1,25 @@
 package com.imagepicker;
 
+import static com.imagepicker.Utils.cameraPermissionDescription;
+import static com.imagepicker.Utils.collectUrisFromData;
+import static com.imagepicker.Utils.createFile;
+import static com.imagepicker.Utils.createUri;
+import static com.imagepicker.Utils.deleteFile;
+import static com.imagepicker.Utils.errCameraUnavailable;
+import static com.imagepicker.Utils.errOthers;
+import static com.imagepicker.Utils.errPermission;
+import static com.imagepicker.Utils.getCancelMap;
+import static com.imagepicker.Utils.getErrorMap;
+import static com.imagepicker.Utils.getResponseMap;
+import static com.imagepicker.Utils.hasPermission;
+import static com.imagepicker.Utils.isCameraAvailable;
+import static com.imagepicker.Utils.isCameraPermissionFulfilled;
+import static com.imagepicker.Utils.isValidRequestCode;
+import static com.imagepicker.Utils.mediaTypePhoto;
+import static com.imagepicker.Utils.mediaTypeVideo;
+import static com.imagepicker.Utils.saveToPublicDirectory;
+import static com.imagepicker.Utils.setFrontCamera;
+
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
@@ -10,21 +30,16 @@ import android.provider.MediaStore;
 import com.facebook.react.bridge.ActivityEventListener;
 import com.facebook.react.bridge.Callback;
 import com.facebook.react.bridge.ReactApplicationContext;
-import com.facebook.react.bridge.ReactContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.ReadableMap;
-import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.module.annotations.ReactModule;
-import com.facebook.react.modules.core.DeviceEventManagerModule;
 
 import java.io.File;
 import java.util.Collections;
 import java.util.List;
 
-import static com.imagepicker.Utils.*;
-
-import androidx.annotation.Nullable;
+import io.microshow.rxffmpeg.RxFFmpegInvoke;
 
 @ReactModule(name = ImagePickerModule.NAME)
 public class ImagePickerModule extends ReactContextBaseJavaModule implements ActivityEventListener {
@@ -64,6 +79,22 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
     @ReactMethod
     public void removeListeners(Integer count) {
         // Remove upstream listeners, stop unnecessary background tasks
+    }
+
+    @ReactMethod
+    public void exitCmd() {
+        //中断命令
+        RxFFmpegInvoke.getInstance().exit();
+    }
+
+    @ReactMethod
+    public void clearImgCache() {
+        Utils.clearImgCache(reactContext);
+    }
+
+    @ReactMethod
+    public void clearVidCache() {
+        Utils.clearVidCache(reactContext);
     }
 
     @ReactMethod
@@ -218,5 +249,6 @@ public class ImagePickerModule extends ReactContextBaseJavaModule implements Act
     }
 
     @Override
-    public void onNewIntent(Intent intent) { }
+    public void onNewIntent(Intent intent) {
+    }
 }

@@ -463,7 +463,7 @@ public class Utils {
 
         map.putDouble("fileSize", getFileSize(uri, context));
         map.putString("fileName", fileName);
-        map.putString("type", getMimeTypeFromFileUri(uri));
+        map.putString("type", getMimeTypeFromFileUri(sourceUri));
         if (dimensions[0] == -1) {
             int[] originDimensions = getImageDimensions(sourceUri, context);
             map.putString("uri", sourceUri.toString());
@@ -474,7 +474,6 @@ public class Utils {
             map.putInt("width", dimensions[0]);
             map.putInt("height", dimensions[1]);
         }
-        map.putString("type", getMimeType(uri, context));
 
         if (options.includeBase64) {
             map.putString("base64", getBase64String(uri, context));
@@ -491,9 +490,9 @@ public class Utils {
         map.putDouble("fileSize", getFileSize(uri, context));
         map.putInt("duration", getDuration(uri, context));
         map.putString("fileName", fileName);
-        map.putString("type", getMimeType(uri, context));
+        map.putString("type", getMimeTypeFromFileUri(sourceUri));
 
-        //New Add Screenshot Compress Video
+        //New Add Screenshot & Compress Video
         map.putInt("screenshotWidth", videoInfo.getImgWidth());//截图宽
         map.putInt("screenshotHeight", videoInfo.getImgHeight());//截图高
         map.putString("screenshotPath", videoInfo.getImgPath());//截图地址
@@ -653,8 +652,7 @@ public class Utils {
                                       final String vidPath, final String outputPath,
                                       final long originVideoSize) {
         RxFFmpegInvoke.getInstance()
-                .runCommandRxJava(cmdList)
-                .subscribe(new RxFFmpegSubscriber() {
+                .runCommandAsync(cmdList, new RxFFmpegInvoke.IFFmpegListener() {
                     @Override
                     public void onFinish() {
                         WritableMap params = Arguments.createMap();
@@ -662,7 +660,6 @@ public class Utils {
                         params.putInt("status", 2);
                         long compressVideoSize = getFileSize(outputPath);
                         if (compressVideoSize > originVideoSize) {
-                            Log.i("YB", "返回压缩前的视频");
                             params.putString("compressVidPath", vidPath);
                         }
                         sendEvent(((ReactContext) context), VIDEO_COMPRESS_EVENT, params);
@@ -673,14 +670,14 @@ public class Utils {
                         WritableMap params = Arguments.createMap();
                         params.putString("mode", "compressVideo");
                         params.putInt("status", 1);
+                        if (progress < 0) progress = 0;
                         params.putInt("progress", progress);
-                        params.putString("progressTime", Long.toString(progressTime));
+                        params.putString("progressTime", Long.toString(progressTime / 1000));
                         sendEvent(((ReactContext) context), VIDEO_COMPRESS_EVENT, params);
                     }
 
                     @Override
                     public void onCancel() {
-                        Log.i("YB", "onCancel");
                         WritableMap params = Arguments.createMap();
                         params.putString("mode", "compressVideo");
                         params.putInt("status", 0);
@@ -756,17 +753,11 @@ public class Utils {
 
                     @Override
                     public void onProgress(int progress, long progressTime) {
-//                        WritableMap params = Arguments.createMap();
-//                        params.putString("mode", "screenshot");
-//                        params.putInt("status", 1);
-//                        params.putInt("progress", progress);
-//                        params.putString("progressTime", Long.toString(progressTime));
-//                        sendEvent(((ReactContext) context), VIDEO_COMPRESS_EVENT, params);
+
                     }
 
                     @Override
                     public void onCancel() {
-                        Log.i("YB", "onCancel");
                         WritableMap params = Arguments.createMap();
                         params.putString("mode", "screenshot");
                         params.putInt("status", 0);
@@ -776,7 +767,6 @@ public class Utils {
 
                     @Override
                     public void onError(String message) {
-                        Log.i("YB", "error: " + message);
                         WritableMap params = Arguments.createMap();
                         params.putString("mode", "screenshot");
                         params.putInt("status", -1);
@@ -826,5 +816,80 @@ public class Utils {
         WritableMap map = Arguments.createMap();
         map.putBoolean("didCancel", true);
         return map;
+    }
+
+    /**
+     * 删除单个文件
+     *
+     * @param path 被删除文件的路径名
+     * @return 删除成功：true / 删除失败：false
+     */
+    private static boolean deleteSingleFile(String path) {
+        File file = new File(path);
+        //如果路径名表示的文件是一个标准文件(非文件夹)且存在，则delete
+        if (file.isFile() && file.exists()) {
+            return file.delete();
+        }
+        return false;
+    }
+
+    /**
+     * 删除文件夹下的所有子目录和子文件
+     *
+     * @param path 被删除文件加的路径名
+     * @return 删除成功：true / 删除失败：false
+     */
+    private static boolean deleteDirectory(String path) {
+        boolean flag = false;
+        //如果path不以文件分隔符结尾，则增加分隔符
+        if (!path.endsWith(File.separator)) {
+            path = path + File.separator;
+        }
+        File file = new File(path);
+        //判断路径名表示的是否是文件夹且是否存在
+        if (!file.exists() && !file.isDirectory()) {
+            return false;
+        }
+        File[] files = file.listFiles();
+        //遍历删除指定文件夹下的所有文件及目录
+        for (File file1 : files) {
+            if (file1.isFile()) {
+                //删除子文件
+                flag = deleteSingleFile(file1.getAbsolutePath());
+                if (!flag) {
+                    break;
+                }
+            } else {
+                //删除子目录,用到递归
+                flag = deleteDirectory(file1.getAbsolutePath());
+                if (!flag) {
+                    break;
+                }
+            }
+        }
+        if (!flag) {
+            return false;
+        }
+        return file.delete();
+    }
+
+    /**
+     * 删除图片缓存
+     *
+     * @param context
+     */
+    public static void clearImgCache(Context context) {
+        String imgCachePath = context.getCacheDir() + File.separator + fileNamePrefix;
+        deleteDirectory(imgCachePath);
+    }
+
+    /**
+     * 删除视频缓存
+     *
+     * @param context
+     */
+    public static void clearVidCache(Context context) {
+        String imgCachePath = context.getCacheDir() + File.separator + videoFileNamePrefix;
+        deleteDirectory(imgCachePath);
     }
 }
