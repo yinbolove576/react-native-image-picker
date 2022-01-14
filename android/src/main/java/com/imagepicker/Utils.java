@@ -22,6 +22,7 @@ import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
+import android.text.TextUtils;
 import android.util.Base64;
 import android.util.Log;
 import android.webkit.MimeTypeMap;
@@ -463,7 +464,11 @@ public class Utils {
 
         map.putDouble("fileSize", getFileSize(uri, context));
         map.putString("fileName", fileName);
-        map.putString("type", getMimeTypeFromFileUri(sourceUri));
+        String type = getMimeType(sourceUri, context);
+        if (TextUtils.isEmpty(type)) {
+            type = getMimeType(uri, context);
+        }
+        map.putString("type", type);
         if (dimensions[0] == -1) {
             int[] originDimensions = getImageDimensions(sourceUri, context);
             map.putString("uri", sourceUri.toString());
@@ -490,7 +495,11 @@ public class Utils {
         map.putDouble("fileSize", getFileSize(uri, context));
         map.putInt("duration", getDuration(uri, context));
         map.putString("fileName", fileName);
-        map.putString("type", getMimeTypeFromFileUri(sourceUri));
+        String type = getMimeType(sourceUri, context);
+        if (TextUtils.isEmpty(type)) {
+            type = getMimeType(uri, context);
+        }
+        map.putString("type", type);
 
         //New Add Screenshot & Compress Video
         map.putInt("screenshotWidth", videoInfo.getImgWidth());//截图宽
