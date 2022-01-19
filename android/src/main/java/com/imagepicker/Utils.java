@@ -19,6 +19,7 @@ import android.hardware.camera2.CameraCharacteristics;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Handler;
 import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
@@ -750,8 +751,13 @@ public class Utils {
                     @Override
                     public void onFinish() {
                         if (isCompress) {
-                            String[] vidCmdList = getBoxblur(uri, width, height, rotate, compressVidPath);
-                            compressVideo(context, vidCmdList, vidPath, compressVidPath, originVideoSize);
+                            new Handler().postDelayed(new Runnable() {
+                                @Override
+                                public void run() {
+                                    String[] vidCmdList = getBoxblur(uri, width, height, rotate, compressVidPath);
+                                    compressVideo(context, vidCmdList, vidPath, compressVidPath, originVideoSize);
+                                }
+                            },500);
                         }
                         WritableMap params = Arguments.createMap();
                         params.putString("mode", "screenshot");
