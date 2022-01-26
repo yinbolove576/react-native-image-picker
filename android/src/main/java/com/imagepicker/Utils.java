@@ -61,6 +61,8 @@ import io.microshow.rxffmpeg.RxFFmpegSubscriber;
 public class Utils {
     public static String fileNamePrefix = "rnImgCache";
     public static String videoFileNamePrefix = "rnVidCache";
+    public static String CLOUD_THUMB = "cloud_thumb";
+    private static final String FIELD_THUMB = "thumb";
 
     public static String errCameraUnavailable = "camera_unavailable";
     public static String errPermission = "permission";
@@ -245,7 +247,6 @@ public class Utils {
             bitmap.compress(Bitmap.CompressFormat.WEBP, inSampleSize == 1 ? 75 : 100, os);
             setOrientation(file, originalOrientation, context);
             return Uri.fromFile(file);
-
         } catch (Exception e) {
             e.printStackTrace();
             return null;
@@ -455,6 +456,31 @@ public class Utils {
         return fileName;
     }
 
+    public static String[] getBoxblur(String input, int screenshotWidth, String output) {
+        RxFFmpegCommandList cmdList = new RxFFmpegCommandList();
+        cmdList.append("-i");
+        cmdList.append(input);
+        cmdList.append("-vf");
+        cmdList.append("scale=" + screenshotWidth + ":-1");
+        cmdList.append("-preset");//转码速度，ultrafast，superfast，veryfast，faster，fast，medium，slow，slower，
+        cmdList.append("superfast");
+        cmdList.append(output);
+        return cmdList.build();
+    }
+
+    private static Uri getMediaThumb(Context context, Uri uri, String fileName, Options options) {
+        String outputPath = context.getCacheDir().getPath() + File.separator
+                + CLOUD_THUMB + File.separator + "thumb-" + fileName.substring(0, fileName.lastIndexOf(".")) + ".jpg";
+        File destFile = new File(outputPath);
+        File dir = destFile.getParentFile();
+        if (dir != null && !dir.exists()) {
+            dir.mkdirs();
+        }
+        String[] cmdList = getBoxblur(uri.getPath(), options.screenshotWidth, outputPath);
+        RxFFmpegInvoke.getInstance().runCommand(cmdList, null);
+        return Uri.fromFile(new File(outputPath));
+    }
+
     static ReadableMap getImageResponseMap(Uri sourceUri, Uri uri, Options options, Context context) {
         String fileName = getFileName(context, sourceUri);
         int[] dimensions = getImageDimensions(uri, context);
@@ -479,6 +505,10 @@ public class Utils {
             map.putString("uri", uri.toString());
             map.putInt("width", dimensions[0]);
             map.putInt("height", dimensions[1]);
+        }
+
+        if (options.screenshotWidth > 0) {
+            map.putString(FIELD_THUMB, uri.toString());
         }
 
         if (options.includeBase64) {
@@ -757,7 +787,7 @@ public class Utils {
                                     String[] vidCmdList = getBoxblur(uri, width, height, rotate, compressVidPath);
                                     compressVideo(context, vidCmdList, vidPath, compressVidPath, originVideoSize);
                                 }
-                            },500);
+                            }, 500);
                         }
                         WritableMap params = Arguments.createMap();
                         params.putString("mode", "screenshot");
@@ -800,7 +830,13 @@ public class Utils {
                 if (uri.getScheme().contains("content")) {
                     uri = getAppSpecificStorageUri(true, uri, context);
                 }
-                uri = resizeImage(uri, context, options);
+                if (options.screenshotWidth > 0) {//缩略图方案
+                    Uri sourceUri = fileUris.get(i);
+                    String fileName = getFileName(context, sourceUri);
+                    uri = getMediaThumb(context, uri, fileName, options);
+                } else {//压缩图方案
+                    uri = resizeImage(uri, context, options);
+                }
                 assets.pushMap(getImageResponseMap(fileUris.get(i), uri, options, context));
             } else if (isVideoType(uri, context)) {
                 if (uri.getScheme().contains("content")) {
