@@ -11,12 +11,12 @@ public class Options {
     int quality;
     int maxWidth;
     int maxHeight;
-    int screenshotWidth;
+    int screenshotWidth;//压缩图片，且设置压缩图片最大宽度
     Boolean saveToPhotos;
     int durationLimit;
     Boolean useFrontCamera = false;
     String mediaType;
-
+    Boolean isCompressVideo;//是否压缩视频，默认不压缩
 
     Options(ReadableMap options) {
         mediaType = options.getString("mediaType");
@@ -42,5 +42,10 @@ public class Options {
         maxWidth = options.getInt("maxWidth");
         saveToPhotos = options.getBoolean("saveToPhotos");
         durationLimit = options.getInt("durationLimit");
+        if (options.hasKey("isCompressVideo")) {
+            isCompressVideo = options.getBoolean("isCompressVideo");
+        } else {
+            isCompressVideo = false;
+        }
     }
 }

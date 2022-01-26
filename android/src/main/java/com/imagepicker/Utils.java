@@ -19,7 +19,6 @@ import android.hardware.camera2.CameraCharacteristics;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Build;
-import android.os.Handler;
 import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
@@ -56,7 +55,6 @@ import java.util.UUID;
 
 import io.microshow.rxffmpeg.RxFFmpegCommandList;
 import io.microshow.rxffmpeg.RxFFmpegInvoke;
-import io.microshow.rxffmpeg.RxFFmpegSubscriber;
 
 public class Utils {
     public static String fileNamePrefix = "rnImgCache";
@@ -517,10 +515,15 @@ public class Utils {
         return map;
     }
 
-    static ReadableMap getVideoResponseMap(Uri sourceUri, Uri uri, Context context, VideoInfo videoInfo) {
+    static ReadableMap getVideoResponseMap(Uri sourceUri, Uri uri, Context context, VideoInfo videoInfo, Options options) {
         String fileName = getFileName(context, sourceUri);
         WritableMap map = Arguments.createMap();
-        map.putString("sourceURL", sourceUri.toString());
+        if (options.screenshotWidth > 0) {
+            map.putString("sourceURL", uri.toString());
+            map.putString(FIELD_THUMB, videoInfo.getImgPath());
+        } else {
+            map.putString("sourceURL", sourceUri.toString());
+        }
         map.putDouble("sourceFileSize", getFileSize(sourceUri, context));
         map.putString("uri", uri.toString());
         map.putDouble("fileSize", getFileSize(uri, context));
@@ -588,10 +591,9 @@ public class Utils {
      * @param outputPath
      * @return
      */
-    public static Screenshot getThumbBoxBlur(Uri uri, int width, int height, int rotate, String outputPath) {
+    public static String[] getThumbBoxBlur(Uri uri, int width, int height, int rotate, String outputPath) {
         //关键帧
         //ffmpeg -i video_name_output.mp4 -vf select='eq(pict_type\,I)' -frames:v 1 -vsync vfr -s 750*1334 -f image2 core-%02d.jpeg
-        Screenshot screenshot = new Screenshot();
         RxFFmpegCommandList cmdList = new RxFFmpegCommandList();
         cmdList.append("-i");
         cmdList.append(uri.getPath());
@@ -601,61 +603,50 @@ public class Utils {
         cmdList.append("1");
         cmdList.append("-vsync");
         cmdList.append("vfr");
-        screenshot.setUri(outputPath);
         if (width >= 1280 || height >= 1280) {
             cmdList.append("-s");
             if (width > height) {
                 if (rotate == 0 || rotate == 180) {
                     int w = width * 720 / height;
                     cmdList.append(w + "x720");
-                    screenshot.setWidth(w);
-                    screenshot.setHeight(720);
                 } else {
                     int h = width * 720 / height;
                     cmdList.append("720x" + h);
-                    screenshot.setWidth(720);
-                    screenshot.setHeight(h);
                 }
             } else {
                 if (rotate == 0 || rotate == 180) {
                     int h = height * 720 / width;
                     cmdList.append("720x" + h);
-                    screenshot.setWidth(720);
-                    screenshot.setHeight(h);
                 } else {
                     int w = height * 720 / width;
                     cmdList.append(w + "x720");
-                    screenshot.setWidth(w);
-                    screenshot.setHeight(720);
                 }
             }
         } else {
-            screenshot.setWidth(width);
-            screenshot.setHeight(height);
+            cmdList.append(width + "x" + height);
         }
         cmdList.append("-f");
         cmdList.append("image2");
         cmdList.append("-preset");//转码速度，ultrafast，superfast，veryfast，faster，fast，medium，slow，slower，
         cmdList.append("superfast");
         cmdList.append(outputPath);
-        screenshot.setCmdList(cmdList.build());
-        return screenshot;
+        return cmdList.build();
     }
 
     /**
      * 获取压缩命令
      *
-     * @param uri
+     * @param inputPath
      * @param width
      * @param height
      * @param rotate
      * @param outputPath
      * @return
      */
-    public static String[] getBoxblur(Uri uri, int width, int height, int rotate, String outputPath) {
+    public static String[] getBoxblur(String inputPath, int width, int height, int rotate, String outputPath) {
         RxFFmpegCommandList cmdList = new RxFFmpegCommandList();
         cmdList.append("-i");
-        cmdList.append(uri.getPath());
+        cmdList.append(inputPath);
         cmdList.append("-vf");
         if (width > height) {
             if (rotate == 0 || rotate == 180) {
@@ -736,7 +727,7 @@ public class Utils {
                 });
     }
 
-    public static VideoInfo resizeVideo(final Uri uri, final Context context) {
+    public static VideoInfo resizeVideo(final Context context, final Uri uri, Options options) {
         VideoInfo videoInfo = new VideoInfo();
         MediaMetadataRetriever retriever = new MediaMetadataRetriever();
         final String vidPath = uri.getPath();
@@ -750,75 +741,41 @@ public class Utils {
         final long originVideoSize = getFileSize(vidPath);
         Log.i("YB", "width: " + width + ",height: " + height + ",rotate: " + rotate + ",duration: " + duration + ",size: " + originVideoSize + ",bitrate: " + bitrate);
 
-        //1.获取缩略图 uri、width、height
-        String thumbPath = context.getCacheDir().getPath() + File.separator
-                + videoFileNamePrefix + File.separator + UUID.randomUUID() + ".jpg";
-        Screenshot screenshot = getThumbBoxBlur(uri, width, height, rotate, thumbPath);
-        videoInfo.setImgWidth(screenshot.getWidth());
-        videoInfo.setImgHeight(screenshot.getHeight());
-        videoInfo.setImgPath(thumbPath);
-
         videoInfo.setVidWidth(width);
         videoInfo.setVidHeight(height);
 
-        //2.视频压缩路径
-        final String compressVidPath = context.getCacheDir().getPath() + File.separator
-                + videoFileNamePrefix + File.separator + UUID.randomUUID() + ".mp4";
+        //1.获取缩略图 uri、width、height
+        String thumbPath = context.getCacheDir().getPath() + File.separator
+                + videoFileNamePrefix + File.separator + UUID.randomUUID() + ".jpg";
+        videoInfo.setImgPath(thumbPath);
 
-        final boolean isCompress = (width >= 1280 || height >= 1280) && bitrate / 1024 > 3200;
-        if (isCompress) {
-            videoInfo.setCompress(true);
-            videoInfo.setCompressVidPath(compressVidPath);
+        String[] cmdList;
+        if (options.screenshotWidth > 0) {
+            cmdList = getBoxblur(uri.getPath(), options.screenshotWidth, thumbPath);
         } else {
-            videoInfo.setCompress(false);
-            videoInfo.setOriginVidPath(vidPath);
+            cmdList = getThumbBoxBlur(uri, width, height, rotate, thumbPath);
         }
-
         //1.生成视频关键帧截图
-        RxFFmpegInvoke.getInstance()
-                .runCommandRxJava(screenshot.getCmdList())
-                .subscribe(new RxFFmpegSubscriber() {
-                    @Override
-                    public void onFinish() {
-                        if (isCompress) {
-                            new Handler().postDelayed(new Runnable() {
-                                @Override
-                                public void run() {
-                                    String[] vidCmdList = getBoxblur(uri, width, height, rotate, compressVidPath);
-                                    compressVideo(context, vidCmdList, vidPath, compressVidPath, originVideoSize);
-                                }
-                            }, 500);
-                        }
-                        WritableMap params = Arguments.createMap();
-                        params.putString("mode", "screenshot");
-                        params.putInt("status", 2);
-                        params.putString("msg", "finish");
-                        sendEvent(((ReactContext) context), VIDEO_COMPRESS_EVENT, params);
-                    }
+        RxFFmpegInvoke.getInstance().runCommand(cmdList, null);
+        int[] screenshotDimens = getImageDimensions(Uri.fromFile(new File(thumbPath)), context);
+        videoInfo.setImgWidth(screenshotDimens[0]);
+        videoInfo.setImgHeight(screenshotDimens[1]);
+        if (options.isCompressVideo) {
+            //2.视频压缩路径
+            final String compressVidPath = context.getCacheDir().getPath() + File.separator
+                    + videoFileNamePrefix + File.separator + UUID.randomUUID() + ".mp4";
 
-                    @Override
-                    public void onProgress(int progress, long progressTime) {
-
-                    }
-
-                    @Override
-                    public void onCancel() {
-                        WritableMap params = Arguments.createMap();
-                        params.putString("mode", "screenshot");
-                        params.putInt("status", 0);
-                        params.putString("msg", "cancel");
-                        sendEvent(((ReactContext) context), VIDEO_COMPRESS_EVENT, params);
-                    }
-
-                    @Override
-                    public void onError(String message) {
-                        WritableMap params = Arguments.createMap();
-                        params.putString("mode", "screenshot");
-                        params.putInt("status", -1);
-                        params.putString("msg", message);
-                        sendEvent(((ReactContext) context), VIDEO_COMPRESS_EVENT, params);
-                    }
-                });
+            final boolean isCompress = (width >= 1280 || height >= 1280) && bitrate / 1024 > 3200;
+            if (isCompress) {
+                videoInfo.setCompress(true);
+                videoInfo.setCompressVidPath(compressVidPath);
+            } else {
+                videoInfo.setCompress(false);
+                videoInfo.setOriginVidPath(vidPath);
+            }
+            String[] vidCmdList = getBoxblur(uri.getPath(), width, height, rotate, compressVidPath);
+            compressVideo(context, vidCmdList, vidPath, compressVidPath, originVideoSize);
+        }
         return videoInfo;
     }
 
@@ -842,8 +799,8 @@ public class Utils {
                 if (uri.getScheme().contains("content")) {
                     uri = getAppSpecificStorageUri(false, uri, context);
                 }
-                VideoInfo videoInfo = resizeVideo(uri, context);
-                assets.pushMap(getVideoResponseMap(fileUris.get(i), uri, context, videoInfo));
+                VideoInfo videoInfo = resizeVideo(context, uri, options);
+                assets.pushMap(getVideoResponseMap(fileUris.get(i), uri, context, videoInfo, options));
             } else {
                 throw new RuntimeException("Unsupported file type");
             }
