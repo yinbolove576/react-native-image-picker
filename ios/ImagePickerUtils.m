@@ -238,32 +238,54 @@
     MediaInformation *mediaInfo = [session getMediaInformation];
     
     NSDictionary * allPro = mediaInfo.getAllProperties;
-    NSDictionary * infoStreams = allPro[@"streams"][0];
-    
-    NSString *rotation = infoStreams[@"side_data_list"][0][@"rotation"];
-    if (rotation == NULL) {
-        rotation = @"0";
-    }
-    NSString *width = infoStreams[@"width"];
-    NSString *height = infoStreams[@"height"];
-    
+    NSDictionary * infoStreams = allPro[@"streams"];
+
     NSMutableDictionary * infoDic = [[NSMutableDictionary alloc] init];
     
     infoDic[@"size"] = mediaInfo.getSize;
     infoDic[@"bitrate"] = mediaInfo.getBitrate;
     infoDic[@"duration"] = mediaInfo.getDuration;
     
-    NSString *nameStr = mediaInfo.getFilename;
-    NSArray *array = [nameStr componentsSeparatedByString:@"/"];
+    NSString * nameStr = mediaInfo.getFilename;
+    NSArray * nameStrArray = [nameStr componentsSeparatedByString:@"/"];
+    infoDic[@"filename"] = [nameStrArray lastObject];
     
-    infoDic[@"filename"] = [array lastObject];
-    infoDic[@"rotation"] = rotation;
+    NSString * rotation = @"0";
+    NSString * width = @"";
+    NSString * height = @"";
+    
+    for (NSDictionary * item in infoStreams) {
+        if (item[@"width"]) {
+            width = item[@"width"];
+            break;
+        }
+    }
+    
+    for (NSDictionary * item in infoStreams) {
+        if (item[@"height"]) {
+            height = item[@"height"];
+            break;
+        }
+    }
+    
+    for (NSDictionary * item in infoStreams) {
+        if (item[@"side_data_list"]) {
+            NSDictionary * side_data_list = infoStreams[@"side_data_list"];
+            for (NSDictionary * item2 in side_data_list) {
+                if (item2[@"rotation"]) {
+                    rotation = item2[@"rotation"];
+                    break;
+                }
+            }
+            break;
+        }
+    }
+    
     infoDic[@"width"] = width;
     infoDic[@"height"] = height;
+    infoDic[@"rotation"] = rotation;
     
     return infoDic;
-    
-    
 }
 
 // get thumb info by origin info
