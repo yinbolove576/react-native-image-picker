@@ -16,4 +16,6 @@ Pod::Spec.new do |s|
   s.source_files  = "ios/*.{h,m}"
 
   s.dependency 'React-Core'
+
+  s.dependency 'ffmpeg-kit-ios-full', '~> 4.5.1'
 end

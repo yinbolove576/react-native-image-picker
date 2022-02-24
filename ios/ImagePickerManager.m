@@ -4,6 +4,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <Photos/Photos.h>
 #import <PhotosUI/PhotosUI.h>
+#include <ffmpegkit/FFmpegKit.h>
 
 @import MobileCoreServices;
 
@@ -34,6 +35,11 @@ RNImagePickerTarget target;
 
 RCT_EXPORT_MODULE();
 
+- (NSArray<NSString *> *)supportedEvents
+{
+  return @[@"VideoCompressEvent"];
+}
+
 RCT_EXPORT_METHOD(launchCamera:(NSDictionary *)options callback:(RCTResponseSenderBlock)callback)
 {
     target = camera;
@@ -50,6 +56,11 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
     });
 }
 
+//cancel FFmpegKit
+RCT_EXPORT_METHOD(exitCmd){
+    [FFmpegKit cancel];
+}
+
 - (void)launchImagePicker:(NSDictionary *)options callback:(RCTResponseSenderBlock)callback
 {
     self.callback = callback;
@@ -60,7 +71,7 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
     }
     
     self.options = options;
-
+    
 #if __has_include(<PhotosUI/PHPicker.h>)
     if (@available(iOS 14, *)) {
         if (target == library) {
@@ -68,7 +79,7 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
             PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:configuration];
             picker.delegate = self;
             picker.presentationController.delegate = self;
-
+            
             [self showPickerViewController:picker];
             return;
         }
@@ -78,7 +89,7 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
     UIImagePickerController *picker = [[UIImagePickerController alloc] init];
     [ImagePickerUtils setupPickerFromOptions:picker options:self.options target:target];
     picker.delegate = self;
-
+    
     [self checkPermission:^(BOOL granted) {
         if (!granted) {
             self.callback(@[@{@"errorCode": errPermission}]);
@@ -106,40 +117,54 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
     if ((target == camera) && [self.options[@"saveToPhotos"] boolValue]) {
         UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil);
     }
-    
     if (![fileType isEqualToString:@"gif"]) {
         image = [ImagePickerUtils resizeImage:image
                                      maxWidth:[self.options[@"maxWidth"] floatValue]
                                     maxHeight:[self.options[@"maxHeight"] floatValue]];
     }
-
-    if ([fileType isEqualToString:@"jpg"]) {
-        data = UIImageJPEGRepresentation(image, [self.options[@"quality"] floatValue]);
-        originData = UIImageJPEGRepresentation(image, 1.0);
-    } else if ([fileType isEqualToString:@"png"]) {
-        data = UIImagePNGRepresentation(image);
-        originData = UIImagePNGRepresentation(image);
+    if ([fileType isEqualToString:@"jpg"] || [fileType isEqualToString:@"png"]) {
+        float imageW = image.size.width;
+        float imageH = image.size.height;
+        float screenshotWidth = [self.options[@"screenshotWidth"] floatValue];
+        float screenshotHeight = (imageH/imageW)*screenshotWidth;
+        
+        if (screenshotWidth > 0) {
+            //缩略图方案
+            image = [ImagePickerUtils resizeImage:image
+                                         maxWidth:screenshotWidth
+                                        maxHeight:screenshotHeight];
+            data = [ImagePickerUtils getImageData:image];
+        }else{
+            //压缩图方案
+            data = UIImageJPEGRepresentation(image, 0.5);
+        }
     }
     
     NSMutableDictionary *asset = [[NSMutableDictionary alloc] init];
     asset[@"type"] = [@"image/" stringByAppendingString:fileType];
-
+    
     NSString *fileName = originFileName;
+    
     NSString *path = [[NSTemporaryDirectory() stringByStandardizingPath] stringByAppendingPathComponent:fileName];
     [data writeToFile:path atomically:YES];
+    
     NSString *originPath = [[NSTemporaryDirectory() stringByStandardizingPath] stringByAppendingPathComponent:[NSString stringWithFormat:@"origin_%@",fileName]];
     [originData writeToFile:originPath atomically:YES];
-
+    
     if ([self.options[@"includeBase64"] boolValue]) {
         asset[@"base64"] = [data base64EncodedStringWithOptions:0];
     }
-
+    
     NSURL *fileURL = [NSURL fileURLWithPath:path];
     asset[@"uri"] = [fileURL absoluteString];
     
+    if ([self.options[@"screenshotWidth"] floatValue] > 0) {
+        asset[@"thumb"] = [fileURL absoluteString];
+    }
+    
     NSURL *originFileURL = [NSURL fileURLWithPath:originPath];
     asset[@"sourceURL"] = [originFileURL absoluteString];
-
+    
     NSNumber *fileSizeValue = nil;
     NSError *fileSizeError = nil;
     [fileURL getResourceValue:&fileSizeValue forKey:NSURLFileSizeKey error:&fileSizeError];
@@ -153,7 +178,7 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
     if (originFileSizeValue){
         asset[@"sourceFileSize"] = originFileSizeValue;
     }
-
+    
     asset[@"fileName"] = fileName;
     asset[@"width"] = @(image.size.width);
     asset[@"height"] = @(image.size.height);
@@ -165,7 +190,7 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
     NSString *fileName = [url lastPathComponent];
     NSString *path = [[NSTemporaryDirectory() stringByStandardizingPath] stringByAppendingPathComponent:fileName];
     NSURL *videoDestinationURL = [NSURL fileURLWithPath:path];
-
+    
     if ((target == camera) && [self.options[@"saveToPhotos"] boolValue]) {
         UISaveVideoAtPathToSavedPhotosAlbum(url.path, nil, nil, nil);
     }
@@ -177,33 +202,161 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
         if ([fileManager fileExistsAtPath:videoDestinationURL.path]) {
             [fileManager removeItemAtURL:videoDestinationURL error:nil];
         }
-
+        
         if (url) { // Protect against reported crash
             
             BOOL didSucceed = NO;
             // If we have write access to the source file, move it. Otherwise use copy.
             if ([fileManager isWritableFileAtPath:[url path]]) {
-              didSucceed = [fileManager moveItemAtURL:url toURL:videoDestinationURL error:error];
+                didSucceed = [fileManager moveItemAtURL:url toURL:videoDestinationURL error:error];
             } else {
-              didSucceed = [fileManager copyItemAtURL:url toURL:videoDestinationURL error:error];
+                didSucceed = [fileManager copyItemAtURL:url toURL:videoDestinationURL error:error];
             }
-
+            
             if (didSucceed != YES) {
                 return nil;
             }
         }
     }
     
-    NSInteger  fileSize = [[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil].fileSize;
+    
+    NSDictionary * originInfo = [ImagePickerUtils getMediaInfoPath:path];
+    
+    int originSize = [originInfo[@"size"] intValue];
+    int originWidth = [originInfo[@"width"] intValue];
+    int originHeight = [originInfo[@"height"] intValue];
+    int originRotation = [originInfo[@"rotation"] intValue];
+    int originBitrate = [originInfo[@"bitrate"] intValue];
+    float originDuration = [originInfo[@"duration"] floatValue];
+    NSString * orginName = originInfo[@"filename"];
+    
     NSMutableDictionary *asset = [[NSMutableDictionary alloc] init];
-    asset[@"duration"] = [NSNumber numberWithDouble:CMTimeGetSeconds([AVAsset assetWithURL:videoDestinationURL].duration)];
-    asset[@"fileSize"] = [NSNumber numberWithDouble:fileSize];
-    asset[@"uri"] = videoDestinationURL.absoluteString;
+    
+    asset[@"sourceURL"] = videoDestinationURL.absoluteString;
+    asset[@"sourceFileSize"] = [NSNumber numberWithDouble:originSize];
+    asset[@"originVidWidth"] = [NSNumber numberWithDouble:originWidth];
+    asset[@"originVidHeight"] = [NSNumber numberWithDouble:originHeight];
+    asset[@"duration"] = [NSNumber numberWithDouble:originDuration];
+    asset[@"fileName"] = orginName;
     asset[@"type"] = [ImagePickerUtils getFileTypeFromUrl:videoDestinationURL];
-    asset[@"fileName"] = fileName;
+    asset[@"uri"] = videoDestinationURL.absoluteString;
+    
+    
+    NSDictionary * screenshotInfo = [ImagePickerUtils getScreenshotInfoOriginWidth:originWidth originHeight:originHeight OriginRotate:originRotation fileName:orginName];
+    
+    int screenshotWidth = [screenshotInfo[@"screenshotWidth"] intValue];
+    int screenshotHeight = [screenshotInfo[@"screenshotHeight"] intValue];
+    NSString * screenshotPath = screenshotInfo[@"screenshotPath"] ;
+    
+    asset[@"screenshotWidth"] = [NSNumber numberWithDouble:screenshotWidth];
+    asset[@"screenshotHeight"] = [NSNumber numberWithDouble:screenshotHeight];
+    asset[@"screenshotPath"] = screenshotPath;
+    
+    NSString * thumCommand = [ImagePickerUtils getThumbCommandSpecPath:path outPath:screenshotPath width:originWidth height:originHeight rotate:originRotation];
+    
+    if ([self.options[@"screenshotWidth"] intValue] > 0) {
+        asset[@"thumb"] = screenshotPath;
+        thumCommand = [ImagePickerUtils getThumbCommandPath:path outPath:screenshotPath screenshotWidth:[self.options[@"screenshotWidth"] intValue]];
+    }
+    
+    // Delete file if it already exists
+    [ImagePickerUtils clearCache:thumCommand];
+    
+    // get thumb
+    FFmpegSession *session = [FFmpegKit execute:thumCommand];
+    NSLog(@"===session:%d",[ReturnCode isSuccess:[session getReturnCode]]);
+    
+    BOOL isCompress = (originWidth >= 1280 || originHeight >= 1280) && originBitrate / 1024 > 3200;
+    asset[@"isCompress"] = [NSNumber numberWithBool:isCompress];
+    
+    if (isCompress) {
+        // compress video
+        NSString * compressVidPath = [[NSTemporaryDirectory() stringByStandardizingPath] stringByAppendingPathComponent:[NSString stringWithFormat:@"compress_%@",fileName]];
+        
+        // Delete file if it already exists
+        [ImagePickerUtils clearCache:compressVidPath];
+        
+        NSString * videoCommand = [ImagePickerUtils getVideoCommandPath:path outPath:compressVidPath width:originWidth height:originHeight rotate:originRotation];
+        
+        [self compressVideo:videoCommand path:(NSString *)path outPath:(NSString *)compressVidPath duration:originDuration originSize:originSize];
+        
+        asset[@"compressVidPath"] = compressVidPath;
+    }
     
     return asset;
 }
+
+
+
+-(void)compressVideo:(NSString *) command path:(NSString *)path outPath:(NSString *)outPath  duration:(float) duration originSize:(int)originSize {
+    [FFmpegKit executeAsync:command withCompleteCallback:^(FFmpegSession *session) {
+        
+        ReturnCode *returnCode = [session getReturnCode];
+        
+        if ([ReturnCode isSuccess:returnCode]) {
+            NSLog(@"===returnCode:%@",returnCode);
+            
+            NSMutableDictionary * params = [[NSMutableDictionary alloc] init];
+            params[@"mode"] =  @"compressVideo";
+            params[@"status"] =  @(2);
+            
+            NSDictionary * compressInfo = [ImagePickerUtils getMediaInfoPath:outPath];
+            
+            int compressSize = [compressInfo[@"size"] intValue];
+            
+            if (compressSize > originSize) {
+                params[@"compressVidPath"] =  path;
+            }
+            
+            [self sendEventWithName:@"VideoCompressEvent" body:params];
+            
+        } else if ([ReturnCode isCancel:returnCode]) {
+            
+            NSMutableDictionary * params = [[NSMutableDictionary alloc] init];
+            params[@"mode"] =  @"compressVideo";
+            params[@"status"] =  @(0);
+            params[@"msg"] =  @"cancel";
+            
+            [self sendEventWithName:@"VideoCompressEvent" body:params];
+            
+        } else {
+            
+            NSString *message = [NSString stringWithFormat:@"Command failed with state %@ and rc %@.%@",[FFmpegKitConfig sessionStateToString:[session getState]], returnCode, [session getFailStackTrace]];
+            
+            NSLog(@"===%@",message);
+            
+            NSMutableDictionary * params = [[NSMutableDictionary alloc] init];
+            params[@"mode"] =  @"compressVideo";
+            params[@"status"] =  @(-1);
+            params[@"msg"] =  message;
+            
+            [self sendEventWithName:@"VideoCompressEvent" body:params];
+            
+        }
+    } withLogCallback:^(Log *log) {
+    } withStatisticsCallback:^(Statistics *statistics) {
+        int progressTime = statistics.getTime;
+        float durationF = duration*1000;
+        int progress = ceil(progressTime/durationF*100);
+        if (progress<0) {
+            progress = 0;
+        }
+        if (progress>100) {
+            progress = 100;
+        }
+        NSLog(@"===statistics:%d %d %f",progress,progressTime,durationF);
+        
+        NSMutableDictionary * params = [[NSMutableDictionary alloc] init];
+        params[@"mode"] =  @"compressVideo";
+        params[@"status"] =  @(1);
+        params[@"progress"] =  @(progress);
+        params[@"progressTime"] =  [NSString stringWithFormat:@"%f",(float)progressTime/1000];
+        
+        [self sendEventWithName:@"VideoCompressEvent" body:params];
+    }];
+}
+
+
 
 - (void)checkCameraPermissions:(void(^)(BOOL granted))callback
 {
@@ -254,7 +407,7 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
             callback(NO);
             return;
         }
-
+        
         [self checkPhotosPermissions:^(BOOL photoGranted) {
             if (!photoGranted) {
                 callback(NO);
@@ -274,7 +427,7 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
         }
         callback(YES);
     };
-
+    
     if (target == camera && [self.options[@"saveToPhotos"] boolValue]) {
         [self checkCameraAndPhotoPermission:permissionBlock];
     }
@@ -326,12 +479,12 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
         NSMutableArray<NSDictionary *> *assets = [[NSMutableArray alloc] initWithCapacity:1];
         
         if ([info[UIImagePickerControllerMediaType] isEqualToString:(NSString *) kUTTypeImage]) {
-            UIImage *image = [ImagePickerManager getUIImageFromInfo:info]; 
+            UIImage *image = [ImagePickerManager getUIImageFromInfo:info];
             NSURL *imageUrl = info[UIImagePickerControllerReferenceURL];
             PHFetchResult *result = [PHAsset fetchAssetsWithALAssetURLs:@[imageUrl] options:nil];
             PHAsset *phAsset = result.firstObject;
             NSString *fileName =[phAsset valueForKey:@"filename"];
-
+            
             [assets addObject:[self mapImageToAsset:image data:[NSData dataWithContentsOfURL:[ImagePickerManager getNSURLFromInfo:info]] originFileName:fileName]];
         } else {
             NSError *error;
@@ -342,12 +495,12 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
             }
             [assets addObject:asset];
         }
-
+        
         NSMutableDictionary *response = [[NSMutableDictionary alloc] init];
         response[@"assets"] = assets;
         self.callback(@[response]);
     };
-
+    
     dispatch_async(dispatch_get_main_queue(), ^{
         [picker dismissViewControllerAnimated:YES completion:dismissCompletionBlock];
     });
@@ -379,21 +532,21 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results API_AVAILABLE(ios(14))
 {
     [picker dismissViewControllerAnimated:YES completion:nil];
-
+    
     if (results.count == 0) {
         dispatch_async(dispatch_get_main_queue(), ^{
             self.callback(@[@{@"didCancel": @YES}]);
         });
         return;
     }
-
+    
     dispatch_group_t completionGroup = dispatch_group_create();
     NSMutableArray<NSDictionary *> *assets = [[NSMutableArray alloc] initWithCapacity:results.count];
-
+    
     for (PHPickerResult *result in results) {
         NSItemProvider *provider = result.itemProvider;
         dispatch_group_enter(completionGroup);
-
+        
         if ([provider hasItemConformingToTypeIdentifier:(NSString *)kUTTypeImage]) {
             [provider loadFileRepresentationForTypeIdentifier:(NSString *)kUTTypeImage completionHandler:^(NSURL * _Nullable url, NSError * _Nullable error) {
                 NSData *data = [NSData dataWithContentsOfURL:url];
@@ -403,7 +556,7 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
                 dispatch_group_leave(completionGroup);
             }];
         }
-
+        
         if ([provider hasItemConformingToTypeIdentifier:(NSString *)kUTTypeMovie]) {
             [provider loadFileRepresentationForTypeIdentifier:(NSString *)kUTTypeMovie completionHandler:^(NSURL * _Nullable url, NSError * _Nullable error) {
                 [assets addObject:[self mapVideoToAsset:url error:nil]];
@@ -411,7 +564,7 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
             }];
         }
     }
-
+    
     dispatch_group_notify(completionGroup, dispatch_get_main_queue(), ^{
         //  mapVideoToAsset can fail and return nil.
         for (NSDictionary *asset in assets) {
@@ -420,10 +573,10 @@ RCT_EXPORT_METHOD(launchImageLibrary:(NSDictionary *)options callback:(RCTRespon
                 return;
             }
         }
-
+        
         NSMutableDictionary *response = [[NSMutableDictionary alloc] init];
         [response setObject:assets forKey:@"assets"];
-
+        
         self.callback(@[response]);
     });
 }

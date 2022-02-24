@@ -15,5 +15,19 @@
 + (UIImage*)resizeImage:(UIImage*)image maxWidth:(float)maxWidth maxHeight:(float)maxHeight;
 
 + (NSString *) getFileTypeFromUrl:(NSURL *)url;
+
++ (NSData *) getImageData:(UIImage *)image;
+
++(NSString * ) getVideoCommandPath:(NSString *) path outPath:(NSString *)outPath width:(int) width height:(int)height rotate:(int) rotat;
+
++(NSString * ) getThumbCommandPath:(NSString *) path outPath:(NSString *)outPath screenshotWidth:(int) screenshotWidth;
+
++(NSString * ) getThumbCommandSpecPath:(NSString *) path outPath:(NSString *)outPath width:(int) width height:(int)height rotate:(int) rotate;
+
++(NSDictionary * )getMediaInfoPath:(NSString *)path;
+
++(NSDictionary * ) getScreenshotInfoOriginWidth:(int)width originHeight:(int)height OriginRotate:(int) rotate fileName:(NSString *) fileName;
+
++(void) clearCache:(NSString *) outPath;
     
 @end
