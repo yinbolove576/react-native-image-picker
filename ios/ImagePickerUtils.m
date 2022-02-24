@@ -270,7 +270,7 @@
     
     for (NSDictionary * item in infoStreams) {
         if (item[@"side_data_list"]) {
-            NSDictionary * side_data_list = infoStreams[@"side_data_list"];
+            NSDictionary * side_data_list = item[@"side_data_list"];
             for (NSDictionary * item2 in side_data_list) {
                 if (item2[@"rotation"]) {
                     rotation = item2[@"rotation"];
