@@ -168,8 +168,6 @@
 // get video command
 +(NSString * ) getVideoCommandPath:(NSString *) path outPath:(NSString *)outPath width:(int) width height:(int)height rotate:(int) rotate{
     
-    NSLog(@"%d-%d-%d",width,height,rotate);
-    
     NSString *scaleStr = @"";
     
     if (width > height) {

@@ -183,6 +183,8 @@ RCT_EXPORT_METHOD(exitCmd){
     asset[@"width"] = @(image.size.width);
     asset[@"height"] = @(image.size.height);
     
+    NSLog(@"===asset:%@",asset);
+    
     return asset;
 }
 
@@ -266,22 +268,30 @@ RCT_EXPORT_METHOD(exitCmd){
     FFmpegSession *session = [FFmpegKit execute:thumCommand];
     NSLog(@"===session:%d",[ReturnCode isSuccess:[session getReturnCode]]);
     
-    BOOL isCompress = (originWidth >= 1280 || originHeight >= 1280) && originBitrate / 1024 > 3200;
-    asset[@"isCompress"] = [NSNumber numberWithBool:isCompress];
+    BOOL isCompressVideo = [self.options[@"isCompressVideo"] boolValue];
     
-    if (isCompress) {
-        // compress video
-        NSString * compressVidPath = [[NSTemporaryDirectory() stringByStandardizingPath] stringByAppendingPathComponent:[NSString stringWithFormat:@"compress_%@",fileName]];
+    if (isCompressVideo) {
         
-        // Delete file if it already exists
-        [ImagePickerUtils clearCache:compressVidPath];
+        BOOL isCompress = (originWidth >= 1280 || originHeight >= 1280) && originBitrate / 1024 > 3200;
+        asset[@"isCompress"] = [NSNumber numberWithBool:isCompress];
         
-        NSString * videoCommand = [ImagePickerUtils getVideoCommandPath:path outPath:compressVidPath width:originWidth height:originHeight rotate:originRotation];
-        
-        [self compressVideo:videoCommand path:(NSString *)path outPath:(NSString *)compressVidPath duration:originDuration originSize:originSize];
-        
-        asset[@"compressVidPath"] = compressVidPath;
+        if (isCompress) {
+            // compress video
+            NSArray * fileNameArr = [fileName componentsSeparatedByString:@"."];
+            NSString * compressVidPath = [[NSTemporaryDirectory() stringByStandardizingPath] stringByAppendingPathComponent:[NSString stringWithFormat:@"compress_%@.mp4",fileNameArr[0]]];
+            
+            // Delete file if it already exists
+            [ImagePickerUtils clearCache:compressVidPath];
+            
+            NSString * videoCommand = [ImagePickerUtils getVideoCommandPath:path outPath:compressVidPath width:originWidth height:originHeight rotate:originRotation];
+            
+            [self compressVideo:videoCommand path:(NSString *)path outPath:(NSString *)compressVidPath duration:originDuration originSize:originSize];
+            
+            asset[@"compressVidPath"] = compressVidPath;
+        }
     }
+    
+    NSLog(@"===asset:%@",asset);
     
     return asset;
 }
