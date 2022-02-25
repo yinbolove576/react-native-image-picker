@@ -224,6 +224,8 @@ RCT_EXPORT_METHOD(exitCmd){
     
     NSDictionary * originInfo = [ImagePickerUtils getMediaInfoPath:path];
     
+    NSLog(@"===originInfo:%@",originInfo);
+    
     int originSize = [originInfo[@"size"] intValue];
     int originWidth = [originInfo[@"width"] intValue];
     int originHeight = [originInfo[@"height"] intValue];
@@ -243,17 +245,9 @@ RCT_EXPORT_METHOD(exitCmd){
     asset[@"type"] = [ImagePickerUtils getFileTypeFromUrl:videoDestinationURL];
     asset[@"uri"] = videoDestinationURL.absoluteString;
     
-    
-    NSDictionary * screenshotInfo = [ImagePickerUtils getScreenshotInfoOriginWidth:originWidth originHeight:originHeight OriginRotate:originRotation fileName:orginName];
-    
-    int screenshotWidth = [screenshotInfo[@"screenshotWidth"] intValue];
-    int screenshotHeight = [screenshotInfo[@"screenshotHeight"] intValue];
-    NSString * screenshotPath = screenshotInfo[@"screenshotPath"] ;
-    
-    asset[@"screenshotWidth"] = [NSNumber numberWithDouble:screenshotWidth];
-    asset[@"screenshotHeight"] = [NSNumber numberWithDouble:screenshotHeight];
-    asset[@"screenshotPath"] = screenshotPath;
-    
+    NSArray * fileNameArr = [orginName componentsSeparatedByString:@"."];
+    NSString * screenshotPath = [[NSTemporaryDirectory() stringByStandardizingPath] stringByAppendingPathComponent:[NSString stringWithFormat:@"thumb_%@.png",fileNameArr[0]]];
+
     NSString * thumCommand = [ImagePickerUtils getThumbCommandSpecPath:path outPath:screenshotPath width:originWidth height:originHeight rotate:originRotation];
     
     if ([self.options[@"screenshotWidth"] intValue] > 0) {
@@ -261,12 +255,26 @@ RCT_EXPORT_METHOD(exitCmd){
         thumCommand = [ImagePickerUtils getThumbCommandPath:path outPath:screenshotPath screenshotWidth:[self.options[@"screenshotWidth"] intValue]];
     }
     
+    NSLog(@"===thumCommand:%@",thumCommand);
+    
     // Delete file if it already exists
     [ImagePickerUtils clearCache:thumCommand];
     
     // get thumb
     FFmpegSession *session = [FFmpegKit execute:thumCommand];
-    NSLog(@"===session:%d",[ReturnCode isSuccess:[session getReturnCode]]);
+    NSLog(@"===thumb session:%d",[ReturnCode isSuccess:[session getReturnCode]]);
+    
+    NSDictionary * thumbInfo = [ImagePickerUtils getMediaInfoPath:screenshotPath];
+    
+    NSLog(@"===thumbInfo:%@",thumbInfo);
+    
+    int thumbWidth = [thumbInfo[@"width"] intValue];
+    int thumbHeight = [thumbInfo[@"height"] intValue];
+    
+    asset[@"screenshotWidth"] = [NSNumber numberWithDouble:thumbWidth];
+    asset[@"screenshotHeight"] = [NSNumber numberWithDouble:thumbHeight];
+    asset[@"screenshotPath"] = screenshotPath;
+    
     
     BOOL isCompressVideo = [self.options[@"isCompressVideo"] boolValue];
     
@@ -285,6 +293,8 @@ RCT_EXPORT_METHOD(exitCmd){
             
             NSString * videoCommand = [ImagePickerUtils getVideoCommandPath:path outPath:compressVidPath width:originWidth height:originHeight rotate:originRotation];
             
+            NSLog(@"===videoCommand:%@",videoCommand);
+            
             [self compressVideo:videoCommand path:(NSString *)path outPath:(NSString *)compressVidPath duration:originDuration originSize:originSize];
             
             asset[@"compressVidPath"] = compressVidPath;
@@ -295,7 +305,6 @@ RCT_EXPORT_METHOD(exitCmd){
     
     return asset;
 }
-
 
 
 -(void)compressVideo:(NSString *) command path:(NSString *)path outPath:(NSString *)outPath  duration:(float) duration originSize:(int)originSize {
@@ -311,6 +320,8 @@ RCT_EXPORT_METHOD(exitCmd){
             params[@"status"] =  @(2);
             
             NSDictionary * compressInfo = [ImagePickerUtils getMediaInfoPath:outPath];
+            
+            NSLog(@"===compressInfo:%@",compressInfo);
             
             int compressSize = [compressInfo[@"size"] intValue];
             
@@ -333,7 +344,7 @@ RCT_EXPORT_METHOD(exitCmd){
             
             NSString *message = [NSString stringWithFormat:@"Command failed with state %@ and rc %@.%@",[FFmpegKitConfig sessionStateToString:[session getState]], returnCode, [session getFailStackTrace]];
             
-            NSLog(@"===%@",message);
+            NSLog(@"===error message:%@",message);
             
             NSMutableDictionary * params = [[NSMutableDictionary alloc] init];
             params[@"mode"] =  @"compressVideo";

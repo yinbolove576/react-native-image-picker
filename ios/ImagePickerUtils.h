@@ -26,8 +26,6 @@
 
 +(NSDictionary * )getMediaInfoPath:(NSString *)path;
 
-+(NSDictionary * ) getScreenshotInfoOriginWidth:(int)width originHeight:(int)height OriginRotate:(int) rotate fileName:(NSString *) fileName;
-
 +(void) clearCache:(NSString *) outPath;
     
 @end

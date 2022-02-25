@@ -174,13 +174,13 @@
         if (rotate == 0 || rotate == 180 ||  rotate == -180) {
             scaleStr = @"scale=-1:720";
         } else {
-            scaleStr = @"scale=-1:1280";
+            scaleStr = @"scale=720:-1";
         }
     } else {
         if (rotate == 0 || rotate == 180 ||  rotate == -180) {
             scaleStr = @"scale=720:-1";
         } else {
-            scaleStr = @"scale=1280:-1";
+            scaleStr = @"scale=-1:720";
         }
     }
     
@@ -239,7 +239,7 @@
     
     NSDictionary * allPro = mediaInfo.getAllProperties;
     NSDictionary * infoStreams = allPro[@"streams"];
-
+    
     NSMutableDictionary * infoDic = [[NSMutableDictionary alloc] init];
     
     infoDic[@"size"] = mediaInfo.getSize;
@@ -286,46 +286,6 @@
     infoDic[@"rotation"] = rotation;
     
     return infoDic;
-}
-
-// get thumb info by origin info
-+(NSDictionary * ) getScreenshotInfoOriginWidth:(int)width originHeight:(int)height OriginRotate:(int) rotate fileName:(NSString *) fileName{
-
-    int screenshotWidth = width;
-    int screenshotHeight = height;
-    
-    if (width >= 1280 || height >= 1280) {
-        if (width > height) {
-            if (rotate == 0 || rotate == 180 ||  rotate == -180) {
-                int w = width * 720 / height;
-                screenshotWidth = w;
-                screenshotHeight = 720;
-            } else {
-                int h = width * 720 / height;
-                screenshotWidth = 720;
-                screenshotHeight = h;
-            }
-        } else {
-            if (rotate == 0 || rotate == 180 ||  rotate == -180) {
-                int h = height * 720 / width;
-                screenshotWidth = 720;
-                screenshotHeight = h;
-            } else {
-                int w = height * 720 / width;
-                screenshotWidth = w;
-                screenshotHeight = 720;
-            }
-        }
-    } else {
-        screenshotWidth = width;
-        screenshotHeight = height;
-    }
-    
-    NSArray * fileNameArr = [fileName componentsSeparatedByString:@"."];
-    
-    NSString * screenshotPath = [[NSTemporaryDirectory() stringByStandardizingPath] stringByAppendingPathComponent:[NSString stringWithFormat:@"thumb_%@.png",fileNameArr[0]]];
-    
-    return @{@"screenshotWidth":@(screenshotWidth),@"screenshotHeight":@(screenshotHeight),@"screenshotPath":screenshotPath};
 }
 
 +(void) clearCache:(NSString *) outPath{
