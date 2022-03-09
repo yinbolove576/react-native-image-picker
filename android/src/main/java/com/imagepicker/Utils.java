@@ -60,7 +60,6 @@ import io.microshow.rxffmpeg.RxFFmpegInvoke;
 public class Utils {
     public static String fileNamePrefix = "rnImgCache";
     public static String videoFileNamePrefix = "rnVidCache";
-    public static String CLOUD_THUMB = "cloud_thumb";
     private static final String FIELD_THUMB = "thumb";
 
     public static String errCameraUnavailable = "camera_unavailable";
@@ -213,6 +212,28 @@ public class Utils {
         return Base64.encodeToString(bytes, Base64.NO_WRAP);
     }
 
+    /**
+     * 计算出所需要压缩的大小
+     *
+     * @param options
+     * @param reqWidth  我们期望的图片的宽，单位px
+     * @param reqHeight 我们期望的图片的高，单位px
+     * @return
+     */
+    private static int calculateSampleSize(BitmapFactory.Options options, int reqWidth, int reqHeight) {
+        int sampleSize = 1;
+        int picWidth = options.outWidth;
+        int picHeight = options.outHeight;
+        if (picWidth > reqWidth || picHeight > reqHeight) {
+            int halfPicWidth = picWidth / 2;
+            int halfPicHeight = picHeight / 2;
+            while (halfPicWidth / sampleSize > reqWidth || halfPicHeight / sampleSize > reqHeight) {
+                sampleSize *= 2;
+            }
+        }
+        return sampleSize;
+    }
+
     // Resize image
     // When decoding a jpg to bitmap all exif meta data will be lost, so make sure to copy orientation exif to new file else image might have wrong orientations
     public static Uri resizeImage(Uri uri, Context context, Options options) {
@@ -222,28 +243,35 @@ public class Utils {
             if (!shouldResizeImage(origDimens[0], origDimens[1], options)) {
                 return uri;
             }
-
             int width = origDimens[0];
             int height = origDimens[1];
-
             int inSampleSize;
-            if ((width > 1000 && height / width >= 3) || (height > 1000 && width / height >= 3) || width < 1000 || height < 1000) {//max & min
-                inSampleSize = 1;
-            } else {//center
-                inSampleSize = 2;
-            }
-
             BitmapFactory.Options bitmapOptions = new BitmapFactory.Options();
-            bitmapOptions.inPreferredConfig = Bitmap.Config.RGB_565;
-            bitmapOptions.inSampleSize = inSampleSize;
-            Bitmap bitmap = BitmapFactory.decodeFile(uri.getPath(), bitmapOptions);
-
-            String mimeType = getMimeTypeFromFileUri(uri);
+            File file = createFile(true, context, "jpg");
+            if (options.screenshotWidth > 0) {//缩略图方案
+                // 配置压缩的参数
+                bitmapOptions.inJustDecodeBounds = true; //获取当前图片的边界大小，而不是将整张图片载入在内存中，避免内存溢出
+                BitmapFactory.decodeFile(uri.getPath(), bitmapOptions);
+                bitmapOptions.inJustDecodeBounds = false;
+                //inSampleSize的作用就是可以把图片的长短缩小inSampleSize倍，所占内存缩小inSampleSize的平方
+                int screenshotHeight = options.screenshotWidth * height / width;
+                bitmapOptions.inSampleSize = calculateSampleSize(bitmapOptions, options.screenshotWidth, screenshotHeight);
+                Bitmap bitmap = BitmapFactory.decodeFile(uri.getPath(), bitmapOptions); // 解码文件
+                OutputStream os = context.getContentResolver().openOutputStream(Uri.fromFile(file));
+                bitmap.compress(Bitmap.CompressFormat.WEBP, 60, os);
+            } else {//压缩图方案
+                if ((width > 1000 && height / width >= 3) || (height > 1000 && width / height >= 3) || width < 1000 || height < 1000) {//max & min
+                    inSampleSize = 1;
+                } else {//center
+                    inSampleSize = 2;
+                }
+                bitmapOptions.inPreferredConfig = Bitmap.Config.RGB_565;
+                bitmapOptions.inSampleSize = inSampleSize;
+                Bitmap bitmap = BitmapFactory.decodeFile(uri.getPath(), bitmapOptions);
+                OutputStream os = context.getContentResolver().openOutputStream(Uri.fromFile(file));
+                bitmap.compress(Bitmap.CompressFormat.WEBP, inSampleSize == 1 ? 75 : 100, os);
+            }
             String originalOrientation = getOrientation(uri, context);
-
-            File file = createFile(true, context, getFileTypeFromMime(mimeType));
-            OutputStream os = context.getContentResolver().openOutputStream(Uri.fromFile(file));
-            bitmap.compress(Bitmap.CompressFormat.WEBP, inSampleSize == 1 ? 75 : 100, os);
             setOrientation(file, originalOrientation, context);
             return Uri.fromFile(file);
         } catch (Exception e) {
@@ -467,19 +495,6 @@ public class Utils {
         return cmdList.build();
     }
 
-    private static Uri getMediaThumb(Context context, Uri uri, String fileName, Options options) {
-        String outputPath = context.getCacheDir().getPath() + File.separator
-                + CLOUD_THUMB + File.separator + "thumb-" + fileName.substring(0, fileName.lastIndexOf(".")) + ".jpg";
-        File destFile = new File(outputPath);
-        File dir = destFile.getParentFile();
-        if (dir != null && !dir.exists()) {
-            dir.mkdirs();
-        }
-        String[] cmdList = getBoxblur(uri.getPath(), options.screenshotWidth, outputPath);
-        RxFFmpegInvoke.getInstance().runCommand(cmdList, null);
-        return Uri.fromFile(new File(outputPath));
-    }
-
     static ReadableMap getImageResponseMap(Uri sourceUri, Uri uri, Options options, Context context) {
         String fileName = getFileName(context, sourceUri);
         int[] dimensions = getImageDimensions(uri, context);
@@ -604,8 +619,8 @@ public class Utils {
         cmdList.append("1");
         cmdList.append("-vsync");
         cmdList.append("vfr");
+        cmdList.append("-s");
         if (width >= 1280 || height >= 1280) {
-            cmdList.append("-s");
             if (width > height) {
                 if (rotate == 0 || rotate == 180) {
                     int w = width * 720 / height;
@@ -756,6 +771,7 @@ public class Utils {
         } else {
             cmdList = getThumbBoxBlur(uri, width, height, rotate, thumbPath);
         }
+
         //1.生成视频关键帧截图
         RxFFmpegInvoke.getInstance().runCommand(cmdList, null);
         int[] screenshotDimens = getImageDimensions(Uri.fromFile(new File(thumbPath)), context);
@@ -793,13 +809,7 @@ public class Utils {
                 if (uri.getScheme().contains("content")) {
                     uri = getAppSpecificStorageUri(true, uri, context);
                 }
-                if (options.screenshotWidth > 0) {//缩略图方案
-                    Uri sourceUri = fileUris.get(i);
-                    String fileName = getFileName(context, sourceUri);
-                    uri = getMediaThumb(context, uri, fileName, options);
-                } else {//压缩图方案
-                    uri = resizeImage(uri, context, options);
-                }
+                uri = resizeImage(uri, context, options);
                 assets.pushMap(getImageResponseMap(fileUris.get(i), uri, options, context));
             } else if (isVideoType(uri, context)) {
                 if (uri.getScheme().contains("content")) {
