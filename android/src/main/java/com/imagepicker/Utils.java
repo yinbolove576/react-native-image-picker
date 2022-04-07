@@ -263,18 +263,22 @@ public class Utils {
 
             int inSampleSize;
             BitmapFactory.Options bitmapOptions = new BitmapFactory.Options();
-            File file = createFile(true, context, "jpg");
+            File file;
             if (options.screenshotWidth > 0) {//缩略图方案
                 // 配置压缩的参数
                 bitmapOptions.inJustDecodeBounds = true; //获取当前图片的边界大小，而不是将整张图片载入在内存中，避免内存溢出
                 BitmapFactory.decodeFile(uri.getPath(), bitmapOptions);
                 bitmapOptions.inJustDecodeBounds = false;
+
                 //inSampleSize的作用就是可以把图片的长短缩小inSampleSize倍，所占内存缩小inSampleSize的平方
                 int screenshotHeight = options.screenshotWidth * height / width;
                 bitmapOptions.inSampleSize = calculateSampleSize(bitmapOptions, options.screenshotWidth, screenshotHeight);
                 Bitmap bitmap = BitmapFactory.decodeFile(uri.getPath(), bitmapOptions); // 解码文件
+                String mimeType = bitmapOptions.outMimeType;
+                String imgType = getFileTypeFromMime(mimeType);
+                file = createFile(true, context, imgType);
                 OutputStream os = context.getContentResolver().openOutputStream(Uri.fromFile(file));
-                bitmap.compress(Bitmap.CompressFormat.WEBP, 60, os);
+                bitmap.compress(getBitmapCompressFormat(mimeType), 60, os);
             } else {//压缩图方案
                 if ((width > 1000 && height / width >= 3) || (height > 1000 && width / height >= 3) || width < 1000 || height < 1000) {//max & min
                     inSampleSize = 1;
@@ -284,8 +288,11 @@ public class Utils {
                 bitmapOptions.inPreferredConfig = Bitmap.Config.RGB_565;
                 bitmapOptions.inSampleSize = inSampleSize;
                 Bitmap bitmap = BitmapFactory.decodeFile(uri.getPath(), bitmapOptions);
+                String mimeType = bitmapOptions.outMimeType;
+                String imgType = getFileTypeFromMime(mimeType);
+                file = createFile(true, context, imgType);
                 OutputStream os = context.getContentResolver().openOutputStream(Uri.fromFile(file));
-                bitmap.compress(Bitmap.CompressFormat.WEBP, inSampleSize == 1 ? 75 : 100, os);
+                bitmap.compress(getBitmapCompressFormat(mimeType), inSampleSize == 1 ? 75 : 100, os);
             }
             String originalOrientation = getOrientation(uri, context);
             setOrientation(file, originalOrientation, context);
