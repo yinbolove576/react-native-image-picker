@@ -18,6 +18,16 @@ public class Options {
     String mediaType;
     Boolean isCompressVideo;//是否压缩视频，默认不压缩
 
+    String gifThumb;
+
+    public String getGifThumb() {
+        return gifThumb;
+    }
+
+    public void setGifThumb(String gifThumb) {
+        this.gifThumb = gifThumb;
+    }
+
     Options(ReadableMap options) {
         mediaType = options.getString("mediaType");
         selectionLimit = options.getInt("selectionLimit");

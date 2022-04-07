@@ -238,13 +238,29 @@ public class Utils {
     // When decoding a jpg to bitmap all exif meta data will be lost, so make sure to copy orientation exif to new file else image might have wrong orientations
     public static Uri resizeImage(Uri uri, Context context, Options options) {
         try {
-            int[] origDimens = getImageDimensions(uri, context);
+            int width = 0;
+            int height = 0;
+            InputStream inputStream;
+            String sourceMimeType = "jpg";
+            BitmapFactory.Options sourceOptions = new BitmapFactory.Options();
+            try {
+                inputStream = context.getContentResolver().openInputStream(uri);
+                sourceOptions.inJustDecodeBounds = true;
+                BitmapFactory.decodeStream(inputStream, null, sourceOptions);
+                width = sourceOptions.outWidth;
+                height = sourceOptions.outHeight;
+                sourceMimeType = getFileTypeFromMime(sourceOptions.outMimeType);
+            } catch (FileNotFoundException e) {
+                e.printStackTrace();
+            }
 
-            if (!shouldResizeImage(origDimens[0], origDimens[1], options)) {
+            boolean isGif = "gif".equals(sourceMimeType);
+
+            //gif格式图片需要缩略图
+            if (!isGif && !shouldResizeImage(width, height, options)) {
                 return uri;
             }
-            int width = origDimens[0];
-            int height = origDimens[1];
+
             int inSampleSize;
             BitmapFactory.Options bitmapOptions = new BitmapFactory.Options();
             File file = createFile(true, context, "jpg");
@@ -273,7 +289,12 @@ public class Utils {
             }
             String originalOrientation = getOrientation(uri, context);
             setOrientation(file, originalOrientation, context);
-            return Uri.fromFile(file);
+            if (isGif) {
+                options.setGifThumb(Uri.fromFile(file).getPath());
+                return uri;
+            } else {
+                return Uri.fromFile(file);
+            }
         } catch (Exception e) {
             e.printStackTrace();
             return null;
@@ -521,8 +542,12 @@ public class Utils {
             map.putInt("height", dimensions[1]);
         }
 
-        if (options.screenshotWidth > 0) {
-            map.putString(FIELD_THUMB, uri.toString());
+        if ("image/gif".equals(type)) {
+            map.putString(FIELD_THUMB, options.getGifThumb());
+        } else {
+            if (options.screenshotWidth > 0) {
+                map.putString(FIELD_THUMB, uri.toString());
+            }
         }
 
         if (options.includeBase64) {
