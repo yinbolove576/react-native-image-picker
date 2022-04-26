@@ -184,7 +184,7 @@
         }
     }
     
-    NSString * command =  [NSString stringWithFormat:@"-i %@ -b 2097k -r 30 -vcodec mpeg4 -vf %@ -preset superfast %@",path,scaleStr,outPath];
+    NSString * command =  [NSString stringWithFormat:@"-i %@ -b 2097k -r 30 -vcodec h264 -vf %@ -preset superfast %@",path,scaleStr,outPath];
     
     return  command;
 }
