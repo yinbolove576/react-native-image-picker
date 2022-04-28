@@ -490,6 +490,15 @@ RCT_EXPORT_METHOD(exitCmd){
     }
 }
 
+//获取当前时间
+- (NSString *)currentDateStr{
+    NSDate *currentDate = [NSDate date];//获取当前时间，日期
+    NSDateFormatter *dateFormatter = [[NSDateFormatter alloc] init];// 创建一个时间格式化对象
+    [dateFormatter setDateFormat:@"YYYYMMDDHHmmSS"];//设定时间格式,这里可以设置成自己需要的格式
+    NSString *dateString = [dateFormatter stringFromDate:currentDate];//将时间转化成字符串
+    return dateString;
+}
+
 @end
 
 @implementation ImagePickerManager (UIImagePickerControllerDelegate)
@@ -501,12 +510,17 @@ RCT_EXPORT_METHOD(exitCmd){
         
         if ([info[UIImagePickerControllerMediaType] isEqualToString:(NSString *) kUTTypeImage]) {
             UIImage *image = [ImagePickerManager getUIImageFromInfo:info];
-            NSURL *imageUrl = info[UIImagePickerControllerReferenceURL];
-            PHFetchResult *result = [PHAsset fetchAssetsWithALAssetURLs:@[imageUrl] options:nil];
-            PHAsset *phAsset = result.firstObject;
-            NSString *fileName =[phAsset valueForKey:@"filename"];
+            NSString *fileName;
             
-            [assets addObject:[self mapImageToAsset:image data:[NSData dataWithContentsOfURL:[ImagePickerManager getNSURLFromInfo:info]] originFileName:fileName]];
+            if( [picker sourceType] == UIImagePickerControllerSourceTypeCamera ){
+                fileName =[NSString stringWithFormat:@"%@.png",[self currentDateStr]];
+            }else{
+                NSURL *imageUrl = info[UIImagePickerControllerReferenceURL];
+                PHFetchResult *result = [PHAsset fetchAssetsWithALAssetURLs:@[imageUrl] options:nil];
+                PHAsset *phAsset = result.firstObject;
+                fileName =[phAsset valueForKey:@"filename"];
+            }
+            [assets addObject:[self mapImageToAsset:image data:[ImagePickerUtils getImageData:image] originFileName:fileName]];
         } else {
             NSError *error;
             NSDictionary *asset = [self mapVideoToAsset:info[UIImagePickerControllerMediaURL] error:&error];
