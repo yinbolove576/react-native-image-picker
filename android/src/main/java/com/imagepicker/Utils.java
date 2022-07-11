@@ -264,12 +264,11 @@ public class Utils {
             int inSampleSize;
             BitmapFactory.Options bitmapOptions = new BitmapFactory.Options();
             File file;
+            // 配置压缩的参数
+            bitmapOptions.inJustDecodeBounds = true; //获取当前图片的边界大小，而不是将整张图片载入在内存中，避免内存溢出
+            BitmapFactory.decodeFile(uri.getPath(), bitmapOptions);
+            bitmapOptions.inJustDecodeBounds = false;
             if (options.screenshotWidth > 0) {//缩略图方案
-                // 配置压缩的参数
-                bitmapOptions.inJustDecodeBounds = true; //获取当前图片的边界大小，而不是将整张图片载入在内存中，避免内存溢出
-                BitmapFactory.decodeFile(uri.getPath(), bitmapOptions);
-                bitmapOptions.inJustDecodeBounds = false;
-
                 //inSampleSize的作用就是可以把图片的长短缩小inSampleSize倍，所占内存缩小inSampleSize的平方
                 int screenshotHeight = options.screenshotWidth * height / width;
                 bitmapOptions.inSampleSize = calculateSampleSize(bitmapOptions, options.screenshotWidth, screenshotHeight);
@@ -283,7 +282,7 @@ public class Utils {
                 if ((width > 1000 && height / width >= 3) || (height > 1000 && width / height >= 3) || width < 1000 || height < 1000) {//max & min
                     inSampleSize = 1;
                 } else {//center
-                    inSampleSize = 2;
+                    inSampleSize = calculateSampleSize(bitmapOptions, 1280, 1280);
                 }
                 bitmapOptions.inPreferredConfig = Bitmap.Config.RGB_565;
                 bitmapOptions.inSampleSize = inSampleSize;
