@@ -357,7 +357,11 @@ public class Utils {
         MediaMetadataRetriever m = new MediaMetadataRetriever();
         m.setDataSource(context, uri);
         int duration = Math.round(Float.parseFloat(m.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION))) / 1000;
-        m.release();
+        try {
+            m.release();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
         return duration;
     }
 
